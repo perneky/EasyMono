@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "CPPtoCSInteropGenerator": {
+      "commandName": "Project",
+      "commandLineArgs": "..\\..\\..\\..\\TestManaged\\bin\\Debug\\net8.0\\TestManaged.dll\r\n..\\..\\..\\..\\Test\\CSInterop"
+    }
+  }
+}

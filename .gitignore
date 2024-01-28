@@ -1,0 +1,8 @@
+.vs
+CPPtoCSInteropGenerator/bin
+CPPtoCSInteropGenerator/obj
+CStoCPPInteropGenerator/x64
+Test/x64
+TestManaged/bin
+TestManaged/obj
+x64
