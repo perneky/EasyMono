@@ -3,7 +3,9 @@ A header only library and a set of tools, making embedding Mono easy.
 
 # The goal
 Embedding a scripting engine into a C++ program, like a game is pain. Initializing an embedded library like Mono is easy to start with, but then comes the hard part, going back and forth between the native and the managed world.
+
 There are several approaches. For start, calling to the managed world, it is usually made by manually getting function objects, putting the arguments together then passing them. And getting called from the managed world is similar. But one feels there is a better way, so one start building up a template or macro library but usually a mix of those. And it doesn't matter how smart they are, it is getting out of hand.
+
 The templates can be very smart. Through a set of rules, they can generate code for calling a managed function, but it always gets harder and harder to maintain. They can never know things like argument names, so you have to invoke them from within macros. And finally, as you try to match a managed signature from the native world or the other way around, they need to be kept in sync manually all the time.
 
 EasyMono aims to solve this by two of its tools.
@@ -46,6 +48,7 @@ int main()
 }
 ```
 The code above is initializing the Mono library, using the installed Mono location and the `TestManaged.dll` managed library, which holds the scripts we want to run.
+
 By running the generator tools before, the `CSInterop/MonoTest/Testbed.h` is being generated, and through it we can call a static managed function `MonoTest::Testbed::TestInterop`. Calling this C++ function actually calls the managed version.
 The `Generated/RegisterScriptInterface.h` is also generated to handle calling C++ functions from the managed world. `RegisterScriptInterface();` is a generated function, and it registers all the generated C++ wrappers to Mono, to make this happen.
 
@@ -55,8 +58,11 @@ And now comes the fun part. `Test::ScriptTest` is a native class, derived from `
 
 # Scripted class lifecycles
 When a native object is created from the C++ side, the managed counterpart will be created on demand. In this case the native object will hold a weak reference to the managed object.
+
 If it is created from managed code, it will automatically create the native object. In this case the weak reference is created immediately.
+
 Also as the managed object is created in any way, it calls `EasyMono::ScriptedClass::OnScriptAttached` on the native object. When its finalizer is called by the garbage collector, it will call  `EasyMono::ScriptedClass::OnScriptDetached` on the native object again. This is made like this so one can decide how the lifecycle of the native class should be handled. C++ has many ways to deal with this, like implementing a reference counter to all the scripted classes.
+
 For this purpose, the test application has the `ScriptedClassBase` class, implementing very basic reference counting. The `Test::ScriptTest` class is actually based on this.
 
 # Strings
