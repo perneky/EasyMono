@@ -5,9 +5,9 @@ namespace MonoTest
   public static class Testbed
   {
     [EasyMono.ExportToCpp]
-    public static int TestInterop( Test.ScriptTest nativeTester, string stringArg )
+    public static int TestInterop( Test.ScriptTest nativeTester, string stringArg, Vector3 inputV )
     {
-      Console.WriteLine( "Begin program with arg " + stringArg );
+      Console.WriteLine( "Begin program with arg " + stringArg + " and " + inputV.ToString() );
       Console.WriteLine( "Entering with " + nativeTester.ToString() );
       Console.WriteLine( "Starting with " + nativeTester.GetValue().ToString() );
 
@@ -33,7 +33,7 @@ namespace MonoTest
       Console.WriteLine( "Ptr MultiplaAddAndReturn " + tmp.ToString() );
 
       var va = new Vector3( 2, 3, 5 );
-      var vb = new Vector3( 7, 11, 13 );
+      var vb = new Vector3( 7, 11, 13 ) + inputV;
 
       var sumRef = tester.AddVectorsByRef( ref va, ref vb );
       Console.WriteLine( sumRef.ToString() );

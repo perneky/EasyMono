@@ -66,7 +66,7 @@ const string methodTemplate = """
 
 const string transformedArgumentListTemplate = """
 
-    void* args[] = {{ {0} }};
+    const void* args[] = {{ {0} }};
 
 """;
 
@@ -109,7 +109,20 @@ string ToCppNamespace( string ns )
   return ns.Replace( ".", "::" );
 }
 
-string ToCpp( ParameterInfo info )
+bool IsKnownStructure( ParameterInfo info, List<Tuple<string, string>> knownStructures, out string name )
+{
+  var knownStructure = knownStructures.Find( ( t ) => info.ParameterType.ToString() == t.Item2 );
+  if ( knownStructure != null )
+  {
+    name = "const " + knownStructure.Item1 + "&";
+    return true;
+  }
+
+  name = "";
+  return false;
+}
+
+string ToCpp( ParameterInfo info, List<Tuple<string, string>> knownStructures )
 {
   string result;
 
@@ -151,6 +164,8 @@ string ToCpp( ParameterInfo info )
     result = "void";
   else if ( info.ParameterType == typeof( string ) )
     return "const wchar_t*";
+  else if ( IsKnownStructure( info, knownStructures, out string name ) )
+    result = name;
   else
     result = ( info.ParameterType.Namespace + "::" + info.ParameterType.Name ).Replace( ".", "::" );
 
@@ -179,11 +194,11 @@ string ToCppArg( ParameterInfo info )
     return info.Name ?? "NamelessParameter";
 }
 
-string ExportParameters( IEnumerable< ParameterInfo > parameters, bool ctor )
+string ExportParameters( IEnumerable< ParameterInfo > parameters, bool ctor, List<Tuple<string, string>> knownStructures )
 {
   var code = ctor ? "MonoObject* self" : "";
   foreach ( var parameter in parameters )
-    code += string.Format( "{0} {1}, ", ToCpp( parameter ), parameter.Name );
+    code += string.Format( "{0} {1}, ", ToCpp( parameter, knownStructures ), parameter.Name );
   return code.TrimEnd().TrimEnd( ',' );
 }
 
@@ -232,11 +247,11 @@ string ExportReturnReturnValue( ParameterInfo parameter )
     return "\n\n    return retVal;";
 }
 
-string ExportCtor( ConstructorInfo ctor, Type klass )
+string ExportCtor( ConstructorInfo ctor, Type klass, List<Tuple<string, string>> knownStructures )
 {
   return string.Format( ctorTemplate
                       , ctor.Name
-                      , ExportParameters( ctor.GetParameters(), true )
+                      , ExportParameters( ctor.GetParameters(), true, knownStructures )
                       , klass.Namespace
                       , klass.Name
                       , ExportDeclarationArgumentList( ctor.GetParameters() )
@@ -244,12 +259,12 @@ string ExportCtor( ConstructorInfo ctor, Type klass )
                       , ExportPassTransformedArgumentList( ctor.GetParameters() ) );
 }
 
-string ExportMethod( MethodInfo method, Type klass )
+string ExportMethod( MethodInfo method, Type klass, List<Tuple<string, string>> knownStructures )
 {
   return string.Format( methodTemplate
-                      , ToCpp( method.ReturnParameter )
+                      , ToCpp( method.ReturnParameter, knownStructures )
                       , method.Name
-                      , ExportParameters( method.GetParameters(), false )
+                      , ExportParameters( method.GetParameters(), false, knownStructures )
                       , klass.Namespace
                       , klass.Name
                       , method.Name
@@ -276,14 +291,30 @@ bool NeedTranslation( Type type )
   return false;
 }
 
-if ( args.Length < 2)
+if ( args.Length < 3)
 {
   Console.WriteLine( "Invalid number of parameters. Usage:" );
-  Console.WriteLine( "CPPtoCSInteropGenerator.exe CSAssemblyPath OutputDirectoryPath" );
+  Console.WriteLine( "CPPtoCSInteropGenerator.exe CSAssemblyPath DictionaryPath OutputDirectoryPath" );
+  return;
 }
 
 var assemblyPath = Path.GetFullPath( args[ 0 ] );
 var assembly = Assembly.LoadFile( assemblyPath );
+
+var dictionaryPath = Path.GetFullPath( args[ 1 ] );
+
+var knownStructures = new List< Tuple< string, string > >();
+var dictionaryText = File.ReadAllText( dictionaryPath );
+var dictionaryTokens = dictionaryText.Split( new char[] { ' ', '\t', '\n', '\r', ',', ';' }, StringSplitOptions.RemoveEmptyEntries );
+
+if ( ( dictionaryTokens.Length % 2 ) != 0 )
+{
+  Console.WriteLine( "The dictionary is invalid!" );
+  return;
+}
+
+for ( var i = 0; i < dictionaryTokens.Length; i += 2 )
+  knownStructures.Add( new Tuple<string, string>( dictionaryTokens[ i ], dictionaryTokens[ i + 1 ] ) );
 
 foreach ( var type in assembly.GetTypes() )
 {
@@ -294,15 +325,15 @@ foreach ( var type in assembly.GetTypes() )
 
   foreach ( var ctor in type.GetConstructors( methodFilter ) )
     if ( CtorNeedsExporting( ctor ) )
-      functions += ExportCtor( ctor, type );
+      functions += ExportCtor( ctor, type, knownStructures );
 
   foreach ( var method in type.GetMethods( methodFilter ) )
     if ( MethodNeedsExporting( method ) )
-      functions += ExportMethod( method, type );
+      functions += ExportMethod( method, type, knownStructures );
 
   var fileContents = string.Format( fileTemplate, ToCppNamespace( type.Namespace ?? "#MissingNamespace" ), type.Name, functions );
 
-  var path = args[ 1 ];
+  var path = args[ 2 ];
   
   var namespaceElements = type.Namespace?.Split( '.' );
   if ( namespaceElements != null )

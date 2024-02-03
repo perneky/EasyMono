@@ -18,6 +18,9 @@ This is an other small program which depends on libclang. It takes C++ header fi
 
 With these two tools, EasyMono creates a seamless interop between the two worlds. All you need to do is to run them as your scripted C++ classes or your managed exported methods change, and the matching interop mechanism will be generated for you. Always up to date.
 
+# The dictionary
+Both tools take a path to a dictionary file. This file contains type name pairs. The first is the native name, while the second is the managed name. If the tools encounter these types on interfaces, they will generate code to pass the variable as a structure. It will be a constant reference on the native side, and a `ref readonly` on the managed side.
+
 # EasyMono.h
 This single header contains the native code which you need to get mono and the integration up and running. You can include it anywhere where you need to use its functions directly, or the `EasyMono::ScriptedClass` class. But you have to include it into a single CPP file after defining `IMPLEMENT_EASY_MONO` to have the implementation.
 You have to have a mono installation which you need to pass to the `EasyMono::Initialize` function. You also need to link against the Mono libraries, see the Test project on how it is set up.
@@ -80,6 +83,8 @@ The roadmap (to be expanded):
  - [x] Being able to call native functions from the managed world
  - [x] Being able to call managed function from the native world
  - [x] Unique pointer integration showcase
- - [ ] Configurable structure types
+ - [x] Configurable structure types
+ - [ ] Automatic handling of structures not in the dictionary
  - [ ] Handling enums in the tools
  - [ ] Handling callbacks in the tools
+ - [ ] Adding convenience attributes over get* and set* functions in the generated C# classes

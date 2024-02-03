@@ -15,14 +15,14 @@ namespace Scripting
 
 namespace MonoTest::Testbed
 {
-  inline int TestInterop( Test::ScriptTest* nativeTester, const wchar_t* stringArg )
+  inline int TestInterop( Test::ScriptTest* nativeTester, const wchar_t* stringArg, const ::DirectX::XMFLOAT3& inputV )
   {
     auto monoClass = mono_class_from_name( EasyMono::Detail::GetMainMonoImage(), "MonoTest", "Testbed" ); assert( monoClass );
-    auto monoDesc  = mono_method_desc_new( ":TestInterop(ScriptTest,string)", false ); assert( monoDesc );
+    auto monoDesc  = mono_method_desc_new( ":TestInterop(ScriptTest,string,Vector3)", false ); assert( monoDesc );
     auto monoFunc  = mono_method_desc_search_in_class( monoDesc, monoClass ); assert( monoFunc );
     mono_method_desc_free( monoDesc );
     
-    void* args[] = { nativeTester->GetOrCreateMonoObject(), stringArg ? mono_string_new_utf16( mono_get_root_domain(), stringArg, int( wcslen( stringArg ) ) ) : nullptr };
+    const void* args[] = { nativeTester->GetOrCreateMonoObject(), stringArg ? mono_string_new_utf16( mono_get_root_domain(), stringArg, int( wcslen( stringArg ) ) ) : nullptr, &inputV };
 
     MonoObject* monoException = nullptr;
     MonoObject* retVal = mono_runtime_invoke( monoFunc, nullptr, (void**)args, &monoException );

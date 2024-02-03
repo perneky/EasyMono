@@ -1,6 +1,10 @@
 #pragma once
 
+struct Foo0 {};
+
 #include "ScriptedClassBase.h"
+
+struct Foo3 {};
 
 #include <string>
 #include <DirectXMath.h>

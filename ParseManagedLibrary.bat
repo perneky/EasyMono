@@ -1,1 +1,1 @@
-.\CPPtoCSInteropGenerator\bin\Debug\net8.0\CPPtoCSInteropGenerator.exe TestManaged\bin\Debug\net8.0\TestManaged.dll Test\CSInterop
+.\CPPtoCSInteropGenerator\bin\Debug\net8.0\CPPtoCSInteropGenerator.exe TestManaged\bin\Debug\net8.0\TestManaged.dll Test\Dictionary.txt Test\CSInterop

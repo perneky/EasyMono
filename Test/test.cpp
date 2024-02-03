@@ -18,7 +18,7 @@ int main()
 
   auto testObject = Test::ScriptTest::CreateUnique( 69, L"Test object" );
 
-  MonoTest::Testbed::TestInterop( testObject.get(), L"This");
+  MonoTest::Testbed::TestInterop( testObject.get(), L"This", XMFLOAT3( 10, 20, 30 ) );
 
   testObject.release();
 
