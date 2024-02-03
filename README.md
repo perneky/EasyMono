@@ -65,6 +65,8 @@ Also as the managed object is created in any way, it calls `EasyMono::ScriptedCl
 
 For this purpose, the test application has the `ScriptedClassBase` class, implementing very basic reference counting. The `Test::ScriptTest` class is actually based on this.
 
+Also as a point of interest, the `ScriptedClassBase` also implements a `CreateUnique` function to show how to integrate this concept with unique pointers.
+
 # Strings
 Strings are always a special type. On the interop interfaces, the tools recognize wide strings (wchar_t). The choice is made as the mono strings are utf16 strings so strings can be passed on the border without conversion.
 
@@ -77,6 +79,7 @@ EasyMono is work in progress, I make it to support my game, which allows it to b
 The roadmap (to be expanded):
  - [x] Being able to call native functions from the managed world
  - [x] Being able to call managed function from the native world
+ - [x] Unique pointer integration showcase
  - [ ] Configurable structure types
  - [ ] Handling enums in the tools
  - [ ] Handling callbacks in the tools

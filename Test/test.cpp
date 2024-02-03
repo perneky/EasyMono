@@ -16,12 +16,11 @@ int main()
 
   RegisterScriptInterface();
 
-  auto testObject = new Test::ScriptTest( 69, L"Test object" );
-  testObject->AddRef();
+  auto testObject = Test::ScriptTest::CreateUnique( 69, L"Test object" );
 
-  MonoTest::Testbed::TestInterop( testObject, L"This" );
+  MonoTest::Testbed::TestInterop( testObject.get(), L"This");
 
-  testObject->Release();
+  testObject.release();
 
   std::cout << std::endl << "Collecting garbage..." << std::endl;
 

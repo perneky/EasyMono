@@ -9,7 +9,7 @@ using namespace DirectX;
 
 namespace Test
 {
-  class ScriptTest final : public ScriptedClassBase
+  class ScriptTest final : public ScriptedClassBase< ScriptTest >
   {
     static MonoClass* GetMonoClass();
 

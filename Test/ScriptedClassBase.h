@@ -1,11 +1,32 @@
 #include <Include/EasyMono.h>
 #include <iostream>
 
+template< typename Impl >
+class ScriptedClassBase;
+
+template< typename Impl >
+void ScriptedClassDeleter( ScriptedClassBase< Impl >* s );
+
+template< typename Impl >
+using ScriptedClassDeleterFn = void( * )( ScriptedClassBase< Impl >* );
+
+template< typename Impl >
+using ScriptedPtr = std::unique_ptr< Impl, ScriptedClassDeleterFn< Impl > >;
+
 // This is a generic class to handle the lifecycle management for scripted classes.
 // A simple reference counted object.
+template< typename Impl >
 class ScriptedClassBase : public EasyMono::ScriptedClass
 {
 public:
+  template< typename ...Args >
+  static ScriptedPtr< Impl > CreateUnique( Args&&... args )
+  {
+    ScriptedPtr< Impl > instance( new Impl( std::forward< Args >( args )... ), ScriptedClassDeleter );
+    instance->AddRef();
+    return instance;
+  }
+
   void AddRef()
   {
     ++refCount;
@@ -44,3 +65,9 @@ private:
 
   int refCount = 0;
 };
+
+template< typename Impl >
+inline void ScriptedClassDeleter( ScriptedClassBase< Impl >* s )
+{
+  s->Release();
+}
