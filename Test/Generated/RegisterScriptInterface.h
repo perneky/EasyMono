@@ -24,11 +24,11 @@ void RegisterScriptInterface()
   struct Test__ScriptTest
   {
 
-    static uint64_t __stdcall ScriptTest( int a, MonoString* s )
+    static uint64_t __stdcall ScriptTest( int a, MonoString* s, const ::DirectX::XMFLOAT3& v )
     {
       EasyMono::creatingFromCS = true;
 
-      auto thiz = reinterpret_cast< uint64_t >( new Test::ScriptTest( a, s ? mono_string_chars( s ) : nullptr ) );
+      auto thiz = reinterpret_cast< uint64_t >( new Test::ScriptTest( a, s ? mono_string_chars( s ) : nullptr, v ) );
     
       EasyMono::creatingFromCS = false;
       return thiz;
@@ -41,11 +41,53 @@ void RegisterScriptInterface()
 
     }
 
+    static void __stdcall SetValue( MonoObject* thiz, int v )
+    {
+      auto nativeThis = reinterpret_cast< Test::ScriptTest* >( EasyMono::LoadNativePointer( thiz ) );
+      return nativeThis->SetValue( v );
+
+    }
+
     static MonoString* __stdcall GetString( MonoObject* thiz )
     {
       auto nativeThis = reinterpret_cast< Test::ScriptTest* >( EasyMono::LoadNativePointer( thiz ) );
       auto monoRetStr = nativeThis->GetString(  );
       return monoRetStr ? mono_string_new_utf16( mono_get_root_domain(), monoRetStr, int( wcslen( monoRetStr ) ) ) : nullptr;
+    }
+
+    static void __stdcall SetString( MonoObject* thiz, MonoString* v )
+    {
+      auto nativeThis = reinterpret_cast< Test::ScriptTest* >( EasyMono::LoadNativePointer( thiz ) );
+      return nativeThis->SetString( v ? mono_string_chars( v ) : nullptr );
+
+    }
+
+    static const ::DirectX::XMFLOAT3& __stdcall GetVector( MonoObject* thiz )
+    {
+      auto nativeThis = reinterpret_cast< Test::ScriptTest* >( EasyMono::LoadNativePointer( thiz ) );
+      return nativeThis->GetVector(  );
+
+    }
+
+    static void __stdcall SetVector( MonoObject* thiz, const ::DirectX::XMFLOAT3& v )
+    {
+      auto nativeThis = reinterpret_cast< Test::ScriptTest* >( EasyMono::LoadNativePointer( thiz ) );
+      return nativeThis->SetVector( v );
+
+    }
+
+    static ::DirectX::XMFLOAT4 __stdcall GetZeroVector( MonoObject* thiz )
+    {
+      auto nativeThis = reinterpret_cast< Test::ScriptTest* >( EasyMono::LoadNativePointer( thiz ) );
+      return nativeThis->GetZeroVector(  );
+
+    }
+
+    static void __stdcall SetWhatever( MonoObject* thiz, int v )
+    {
+      auto nativeThis = reinterpret_cast< Test::ScriptTest* >( EasyMono::LoadNativePointer( thiz ) );
+      return nativeThis->SetWhatever( v );
+
     }
 
     static MonoString* __stdcall ConcatCString( MonoObject* thiz, MonoString* other )
@@ -143,7 +185,13 @@ void RegisterScriptInterface()
 
   mono_add_internal_call( "Test.ScriptTest::Ctor", Test__ScriptTest::ScriptTest );
   mono_add_internal_call( "Test.ScriptTest::GetValue", Test__ScriptTest::GetValue );
+  mono_add_internal_call( "Test.ScriptTest::SetValue", Test__ScriptTest::SetValue );
   mono_add_internal_call( "Test.ScriptTest::GetString", Test__ScriptTest::GetString );
+  mono_add_internal_call( "Test.ScriptTest::SetString", Test__ScriptTest::SetString );
+  mono_add_internal_call( "Test.ScriptTest::GetVector", Test__ScriptTest::GetVector );
+  mono_add_internal_call( "Test.ScriptTest::SetVector", Test__ScriptTest::SetVector );
+  mono_add_internal_call( "Test.ScriptTest::GetZeroVector", Test__ScriptTest::GetZeroVector );
+  mono_add_internal_call( "Test.ScriptTest::SetWhatever", Test__ScriptTest::SetWhatever );
   mono_add_internal_call( "Test.ScriptTest::ConcatCString", Test__ScriptTest::ConcatCString );
   mono_add_internal_call( "Test.ScriptTest::ClassPtr", Test__ScriptTest::ClassPtr );
   mono_add_internal_call( "Test.ScriptTest::ClassRef", Test__ScriptTest::ClassRef );

@@ -16,7 +16,7 @@ int main()
 
   RegisterScriptInterface();
 
-  auto testObject = Test::ScriptTest::CreateUnique( 69, L"Test object" );
+  auto testObject = Test::ScriptTest::CreateUnique( 69, L"Test object", XMFLOAT3( 6, 7, 8 ) );
 
   MonoTest::Testbed::TestInterop( testObject.get(), L"This", XMFLOAT3( 10, 20, 30 ) );
 

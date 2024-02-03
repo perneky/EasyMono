@@ -1,6 +1,7 @@
 #include "clang-c/Index.h"
 #include <iostream>
 #include <vector>
+#include <set>
 #include <unordered_map>
 #include <filesystem>
 #include <cassert>
@@ -17,6 +18,7 @@ namespace @
     @( ulong thiz ) : base( thiz )
     {
     }
+@
 @
   }
 })";
@@ -35,6 +37,22 @@ auto csExportedCtorTemplate = LR"(
 auto csExportedMethodTemplate = LR"(
     [MethodImpl(MethodImplOptions.InternalCall)]
     public extern @ @( @ );
+)";
+
+auto csGetterSetterTemplate = LR"(
+    public @ @
+    {
+      get => @();
+      set => @( @value );
+    }
+)";
+
+auto csGetterTemplate = LR"(
+    public @ @ => @();
+)";
+
+auto csSetterTemplate = LR"(
+    public @ @ { set => @( @value ); }
 )";
 
 auto cppFileTemplate = LR"(
@@ -597,11 +615,11 @@ std::wstring ExportCSTypeName( const std::wstring& name )
   return ChangeNamespaceSeparator( csName, L"." );
 }
 
-std::wstring ExportCSArgumentType( const ClassDesc::MethodDesc::ArgumentDesc& argDesc )
+std::wstring ExportCSArgumentType( const ClassDesc::MethodDesc::ArgumentDesc& argDesc, bool forAttribute = false )
 {
   std::wstring s;
 
-  if ( argDesc.type.kind != TypeDesc::Kind::Class && argDesc.type.kind != TypeDesc::Kind::String )
+  if ( argDesc.type.kind != TypeDesc::Kind::Class && argDesc.type.kind != TypeDesc::Kind::String && !forAttribute )
   {
     if ( argDesc.isReference || argDesc.isPointer )
       s += L"ref ";
@@ -683,6 +701,11 @@ std::wstring ExportCSMethodArguments( const ClassDesc::MethodDesc& methodDesc )
   return code;
 }
 
+std::wstring ExportArgCallPrefix( const ClassDesc::MethodDesc::ArgumentDesc& arg )
+{
+  return arg.type.kind == TypeDesc::Kind::Struct && ( arg.isPointer || arg.isReference ) ? L"in " : L"";
+}
+
 std::wstring ExportCSMethodArgumentNames( const ClassDesc::MethodDesc& methodDesc )
 {
   if ( methodDesc.arguments.empty() )
@@ -690,9 +713,83 @@ std::wstring ExportCSMethodArgumentNames( const ClassDesc::MethodDesc& methodDes
 
   std::wstring code = L"";
   for ( auto& argDesc : methodDesc.arguments )
-    code += argDesc.name + L", ";
+    code += ExportArgCallPrefix( argDesc ) + argDesc.name + L", ";
   code.pop_back();
   code.pop_back();
+  return code;
+}
+
+std::wstring ExportAttribute( const ClassDesc::MethodDesc* getter, const ClassDesc::MethodDesc* setter )
+{
+  if ( getter && setter )
+    return FormatString( csGetterSetterTemplate, ExportCSArgumentType( getter->returnValue, true ), getter->name.data() + 3, getter->name, setter->name, ExportArgCallPrefix( setter->arguments.front() ) );
+  else if ( getter )
+    return FormatString( csGetterTemplate, ExportCSArgumentType( getter->returnValue, true ), getter->name.data() + 3, getter->name );
+  else if ( setter )
+    return FormatString( csSetterTemplate, ExportCSArgumentType( setter->arguments.front(), true ), setter->name.data() + 3, setter->name, ExportArgCallPrefix( setter->arguments.front() ) );
+
+  assert( false );
+  return L"";
+}
+
+std::wstring ExportAttributes( const ClassDesc& desc )
+{
+  auto startsWith = []( const std::wstring& s, const wchar_t* w ) { return wcsstr( s.data(), w ) == s.data(); };
+  auto isGetter = [ & ]( const ClassDesc::MethodDesc& desc )
+  {
+    return ( startsWith( desc.name, L"get" ) || startsWith( desc.name, L"Get" ) ) && desc.arguments.empty();
+  };
+  auto isSetter = [ & ]( const ClassDesc::MethodDesc& desc )
+  {
+    return ( startsWith( desc.name, L"set" ) || startsWith( desc.name, L"Set" ) ) && desc.arguments.size() == 1
+      && desc.returnValue.type.name == L"void" && !desc.returnValue.isPointer && !desc.returnValue.isReference;
+  };
+  auto isSameAttribName = [ & ]( const ClassDesc::MethodDesc& a, const ClassDesc::MethodDesc& b )
+  {
+    return wcscmp( a.name.data() + 3, b.name.data() + 3 ) == 0;
+  };
+
+  std::wstring code;
+
+  std::set< decltype( desc.methods )::const_iterator > usedMethods;
+  auto isUsed = [ & ]( decltype( desc.methods )::const_iterator iter ) { return !!usedMethods.count( iter ); };
+
+  for ( auto iter = desc.methods.begin(); iter != desc.methods.end(); ++iter )
+    if ( iter->returnValue.type.kind != TypeDesc::Kind::None )
+      if ( !isUsed( iter ) )
+      {
+        if ( isGetter( *iter ) )
+        {
+          usedMethods.emplace( iter );
+          const ClassDesc::MethodDesc* setter = nullptr;
+          for ( auto setterIter = desc.methods.begin(); setterIter != desc.methods.end(); ++setterIter )
+            if ( isSetter( *setterIter ) && isSameAttribName( *iter, *setterIter ) && !isUsed( setterIter )
+              && iter->returnValue.type.name == setterIter->arguments.front().type.name )
+            {
+              usedMethods.emplace( setterIter );
+              setter = setterIter.operator->();
+              break;
+            }
+
+          code += ExportAttribute( iter.operator->(), setter );
+        }
+        else if ( isSetter( *iter ) )
+        {
+          usedMethods.emplace( iter );
+          const ClassDesc::MethodDesc* getter = nullptr;
+          for ( auto getterIter = desc.methods.begin(); getterIter != desc.methods.end(); ++getterIter )
+            if ( isGetter( *getterIter ) && isSameAttribName( *iter, *getterIter ) && !isUsed( getterIter )
+              && getterIter->returnValue.type.name == iter->arguments.front().type.name )
+            {
+              usedMethods.emplace( getterIter );
+              getter = getterIter.operator->();
+              break;
+            }
+
+          code += ExportAttribute( getter, iter.operator->() );
+        }
+      }
+
   return code;
 }
 
@@ -736,6 +833,7 @@ void WriteCSClass( const ClassDesc& desc, std::filesystem::path path, const wcha
                                   , desc.name
                                   , ExportBaseName( *scriptedBase, scriptedBaseName )
                                   , desc.name
+                                  , ExportAttributes( desc )
                                   , ExportCSMethods( desc ) );
 
   path.append( ChangeNamespaceSeparator( desc.nameSpace, L"/" ) );

@@ -13,6 +13,8 @@ EasyMono aims to solve this by two of its tools.
 # CPPtoCSInteropGenerator
 This is a small program, written in C#. It takes a managed library (a .dll file) and looks for methods with an `ExportToCpp` attribute. For all functions it finds, it generates a C++ function. The native code can just call this native function and it is going to handle calling the managed function properly.
 
+For convinience, it looks for get and set functions in the managed classes, and creates getter/setter attributes for them.
+
 # CStoCPPInteropGenerator
 This is an other small program which depends on libclang. It takes C++ header files and examine them. For every class it finds, derived from the `EasyMono::ScriptedClass`class, it generates a C# class which can be used in the managed world, and registers C++ wrapper functions around its public methods, so they can be called from C# effortlessly.
 
@@ -84,7 +86,7 @@ The roadmap (to be expanded):
  - [x] Being able to call managed function from the native world
  - [x] Unique pointer integration showcase
  - [x] Configurable structure types
+ - [x] Adding convenience attributes over get* and set* functions in the generated C# classes
  - [ ] Automatic handling of structures not in the dictionary
  - [ ] Handling enums in the tools
  - [ ] Handling callbacks in the tools
- - [ ] Adding convenience attributes over get* and set* functions in the generated C# classes

@@ -11,7 +11,8 @@ namespace MonoTest
       Console.WriteLine( "Entering with " + nativeTester.ToString() );
       Console.WriteLine( "Starting with " + nativeTester.GetValue().ToString() );
 
-      var tester = new Test.ScriptTest( nativeTester.GetValue(), nativeTester.GetString() );
+      var ctorArg = new Vector3( 13, 24, 35 );
+      var tester = new Test.ScriptTest( nativeTester.GetValue(), nativeTester.GetString(), in ctorArg );
 
       var tester2 = nativeTester.ClassPass( tester );
       var tester3 = tester.ClassPass( nativeTester );

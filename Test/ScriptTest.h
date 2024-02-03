@@ -18,10 +18,11 @@ namespace Test
     static MonoClass* GetMonoClass();
 
   public:
-    ScriptTest( int a, const wchar_t* s )
+    ScriptTest( int a, const wchar_t* s, const XMFLOAT3& v )
       : ScriptedClassBase( GetMonoClass() )
       , value( a )
       , str( s )
+      , vec( v )
     {
     }
 
@@ -34,9 +35,39 @@ namespace Test
       return value;
     }
 
+    void SetValue(int v)
+    {
+      value = v;
+    }
+
     const wchar_t* GetString() const
     {
       return str.data();
+    }
+
+    void SetString( const wchar_t* v )
+    {
+      str = v;
+    }
+
+    const XMFLOAT3& GetVector() const
+    {
+      return vec;
+    }
+
+    void SetVector( const XMFLOAT3& v )
+    {
+      vec = v;
+    }
+
+    XMFLOAT4 GetZeroVector() const
+    {
+      return XMFLOAT4( 0, 0, 0, 0 );
+    }
+
+    void SetWhatever( int v )
+    {
+      value = v;
     }
 
     const wchar_t* ConcatCString( const wchar_t* other )
@@ -119,5 +150,6 @@ namespace Test
   private:
     int value = 0;
     std::wstring str;
+    XMFLOAT3 vec;
   };
 }
