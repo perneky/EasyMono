@@ -28,7 +28,7 @@ This single header contains the native code which you need to get mono and the i
 You have to have a mono installation which you need to pass to the `EasyMono::Initialize` function. You also need to link against the Mono libraries, see the Test project on how it is set up.
 
 But let's see how it looks:
-```
+```cpp
 #define IMPLEMENT_EASY_MONO 1
 #include <Include/EasyMono.h>
 
