@@ -746,7 +746,8 @@ void ParseClass( CXCursor cursor )
   struct ClassContext
   {
     ClassDesc* klass;
-    bool isPublic = false;
+    bool exporting = false;
+    bool skipNextAccessSpecifier = false;
   } ctx;
 
   ctx.klass = &klass;
@@ -760,11 +761,13 @@ void ParseClass( CXCursor cursor )
     switch ( kind )
     {
     case CXCursor_CXXAccessSpecifier:
-      ctx.isPublic = clang_getCXXAccessSpecifier( cursor ) == CX_CXXPublic;
+      if ( !ctx.skipNextAccessSpecifier )
+        ctx.exporting = false;
+      ctx.skipNextAccessSpecifier = false;
       break;
     case CXCursor_CXXMethod:
     case CXCursor_Constructor:
-      if ( ctx.isPublic )
+      if ( ctx.exporting )
         ctx.klass->methods.emplace_back( ParseMethod( cursor ) );
       break;
     case CXCursor_CXXFinalAttr:
@@ -774,10 +777,17 @@ void ParseClass( CXCursor cursor )
       ctx.klass->baseClasses.emplace_back( GetFullName( clang_getTypeDeclaration( clang_getCursorType( cursor ) ) ) );
       break;
     case CXCursor_StructDecl:
-      ParseStruct( cursor );
+      if ( ToString( cursor ) == L"__ManagedExport__" )
+      {
+        ctx.exporting = true;
+        ctx.skipNextAccessSpecifier = true;
+      }
+      else if ( ctx.exporting )
+        ParseStruct( cursor );
       return CXChildVisit_Continue;
     case CXCursor_EnumDecl:
-      ParseEnum( cursor );
+      if ( ctx.exporting )
+        ParseEnum( cursor );
       return CXChildVisit_Continue;
     default:
       break;
@@ -829,7 +839,7 @@ void parseHeader( std::filesystem::path filePath, const char** clangArguments, i
 {
   std::cout << "Parsing " << filePath << std::endl;
 
-  std::vector< const char* > args = { "-x", "c++" };
+  std::vector< const char* > args = { "-x", "c++", "-DEASY_MONO_PARSER"};
   for ( int argIx = 0; argIx < numClangArguments; ++argIx )
     args.push_back( clangArguments[ argIx ] );
 

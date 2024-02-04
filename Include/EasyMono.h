@@ -3,6 +3,12 @@
 #include <stdint.h>
 #include <mono/metadata/object-forward.h>
 
+#ifndef EASY_MONO_PARSER
+# define managed_export public
+#else
+# define managed_export struct __ManagedExport__; public
+#endif
+
 namespace EasyMono
 {
   void Initialize( bool allowDebugger

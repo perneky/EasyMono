@@ -18,9 +18,23 @@ This is a small program, written in C#. It takes a managed library (a .dll file)
 For convinience, it looks for get and set functions in the managed classes, and creates getter/setter attributes for them.
 
 # CStoCPPInteropGenerator
-This is an other small program which depends on libclang. It takes C++ header files and examine them. For every class it finds, derived from the `EasyMono::ScriptedClass`class, it generates a C# class which can be used in the managed world, and registers C++ wrapper functions around its public methods, so they can be called from C# effortlessly.
+This is an other small program which depends on libclang. It takes C++ header files and examine them. For every class it finds, derived from the `EasyMono::ScriptedClass`class, it generates a C# class which can be used in the managed world, and registers C++ wrapper functions around its methods, so they can be called from C# effortlessly.
 
-With these two tools, EasyMono creates a seamless interop between the two worlds. All you need to do is to run them as your scripted C++ classes or your managed exported methods change, and the matching interop mechanism will be generated for you. Always up to date.
+What is exported to the managed world is what is within the `managed_export:` block.
+```cpp
+class ScriptedClass : public EasyMono::ScriptedClass
+{
+public:
+  void foo(); // Will not be exported just yet
+    
+managed_export: // Everything will be exported until the next access specifier
+  void bar(); // bar will be exported
+
+public: // Stops exporting
+  void baz(); // baz will not be exported
+```
+
+Note that there can be multiple `managed_export:` statements. During normal compilation of the class, `managed_export:` is defined to be `public:`.  The compiler knows this as the interop tool defines `EASY_MONO_PARSER` when parsing.
 
 # The dictionary
 Both tools take a path to a dictionary file. This file contains type name pairs. The first is the native name, while the second is the managed name. If the tools encounter these types on interfaces, they will generate code to pass the variable as a structure. It will be a constant reference on the native side, and a `ref readonly` on the managed side.
@@ -34,6 +48,9 @@ For every struct which has `EasyMono::ScriptedStruct` as its base, a counterpart
 
 # Enumerations
 The tools also look for and parse enum types and recreate them in the managed world. Both enums in namespaces, and enums embedded in classes are supported.
+
+# Tools result
+With these two tools, EasyMono creates a seamless interop between the two worlds. All you need to do is to run them as your scripted C++ classes or your managed exported methods change, and the matching interop mechanism will be generated for you. Always up to date.
 
 # EasyMono.h
 This single header contains the native code which you need to get mono and the integration up and running. You can include it anywhere where you need to use its functions directly, or the `EasyMono::ScriptedClass` class. But you have to include it into a single CPP file after defining `IMPLEMENT_EASY_MONO` to have the implementation.

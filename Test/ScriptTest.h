@@ -20,7 +20,7 @@ namespace Test
   {
     static MonoClass* GetMonoClass();
 
-  public:
+  managed_export:
     struct LocalStruct : EasyMono::ScriptedStruct
     {
       int thisValue;
@@ -198,7 +198,18 @@ namespace Test
       return XMFLOAT2( 3, 4 );
     }
 
+  public:
+    int GetSqTheValue() const
+    {
+      return value * value;
+    }
+
   private:
+    int GetDoubleTheValue() const
+    {
+      return value * 2;
+    }
+
     int value = 0;
     std::wstring str;
     XMFLOAT3 vec;
