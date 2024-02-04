@@ -27,6 +27,13 @@ namespace Test
       int thatValue;
     };
 
+    enum class LocalEnum
+    {
+      One = 1,
+      Two = 2,
+      Four = 4,
+    };
+
     ScriptTest( int a, const wchar_t* s, const XMFLOAT3& v )
       : ScriptedClassBase( GetMonoClass() )
       , value( a )
@@ -37,6 +44,16 @@ namespace Test
 
     ~ScriptTest()
     {
+    }
+
+    void SetValueByLocalEnum( LocalEnum e )
+    {
+      value = (int)e;
+    }
+
+    void SetValueByGlobalEnum( Test::Enum::Enum2 e )
+    {
+      value = (int)e;
     }
 
     void SetByGlobalStruct( const GlobalStruct& s )
@@ -99,7 +116,7 @@ namespace Test
       value = v;
     }
 
-    const wchar_t* ConcatCString( const wchar_t* other )
+    const wchar_t* ConcatString( const wchar_t* other )
     {
       if ( other )
       {
@@ -165,12 +182,12 @@ namespace Test
       return value;
     }
 
-    void MultiplaAdd( int a, int b )
+    void MultiplyAdd( int a, int b )
     {
       value = value * a + b;
     }
 
-    int MultiplaAddAndReturn( int a, int b )
+    int MultiplyAddAndReturn( int a, int b )
     {
       value = value * a + b;
       return value;

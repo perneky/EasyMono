@@ -4,12 +4,18 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 VisualStudioVersion = 17.8.34330.188
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CPPtoCSInteropGenerator", "CPPtoCSInteropGenerator\CPPtoCSInteropGenerator.csproj", "{6786AE6F-5FBD-484A-9F0E-2201DB8283DB}"
+	ProjectSection(ProjectDependencies) = postProject
+		{837E5ED2-65CF-4D0C-83A3-39C112DD2E3A} = {837E5ED2-65CF-4D0C-83A3-39C112DD2E3A}
+	EndProjectSection
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TestManaged", "TestManaged\TestManaged.csproj", "{837E5ED2-65CF-4D0C-83A3-39C112DD2E3A}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CStoCPPInteropGenerator", "CStoCPPInteropGenerator\CStoCPPInteropGenerator.vcxproj", "{CDF28ADA-17E5-47A1-BE67-95063106FD81}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Test", "Test\Test.vcxproj", "{016150C1-F4A7-4EF4-8D69-711BF9E92398}"
+	ProjectSection(ProjectDependencies) = postProject
+		{837E5ED2-65CF-4D0C-83A3-39C112DD2E3A} = {837E5ED2-65CF-4D0C-83A3-39C112DD2E3A}
+	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{1CE8C5B9-B86D-40E8-9259-581F8DF8AB73}"
 	ProjectSection(SolutionItems) = preProject

@@ -1,4 +1,5 @@
 
+
 # EasyMono
 A header only library and a set of tools, making embedding Mono easy.
 
@@ -29,6 +30,10 @@ For every struct which has `EasyMono::ScriptedStruct` as its base, a counterpart
  - Its only base is the `EasyMono::ScriptedStruct`, no multiple bases
  - Its direct base is the `EasyMono::ScriptedStruct`
  - Only has primitive types as fields (int, float, etc.)
+ - It is in a namespace or a scirpted class
+
+# Enumerations
+The tools also look for and parse enum types and recreate them in the managed world. Both enums in namespaces, and enums embedded in classes are supported.
 
 # EasyMono.h
 This single header contains the native code which you need to get mono and the integration up and running. You can include it anywhere where you need to use its functions directly, or the `EasyMono::ScriptedClass` class. But you have to include it into a single CPP file after defining `IMPLEMENT_EASY_MONO` to have the implementation.
@@ -94,7 +99,7 @@ The roadmap (to be expanded):
  - [x] Unique pointer integration showcase
  - [x] Configurable structure types
  - [x] Automatic handling of structures not in the dictionary
- - [ ] Handling enums in the tools
+ - [x] Handling enums in the tools
  - [ ] Handling callbacks in the tools
  - [ ] Handling lists
  - [ ] Handling dictionaries

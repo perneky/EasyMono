@@ -37,3 +37,20 @@ namespace Test::Struct2
     int d;
   };
 }
+
+namespace Test::Enum
+{
+  enum Enum1
+  {
+    A,
+    B,
+    C,
+  };
+
+  enum class Enum2 : int64_t
+  {
+    D,
+    E,
+    F,
+  };
+}

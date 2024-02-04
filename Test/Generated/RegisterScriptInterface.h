@@ -83,6 +83,18 @@ void RegisterScriptInterface()
       return thiz;
     }
 
+    static void __stdcall SetValueByLocalEnum( MonoObject* thiz, ::Test::ScriptTest::LocalEnum e )
+    {
+      auto nativeThis = reinterpret_cast< ::Test::ScriptTest* >( EasyMono::LoadNativePointer( thiz ) );
+      return ( nativeThis->SetValueByLocalEnum( e ) );
+    }
+
+    static void __stdcall SetValueByGlobalEnum( MonoObject* thiz, ::Test::Enum::Enum2 e )
+    {
+      auto nativeThis = reinterpret_cast< ::Test::ScriptTest* >( EasyMono::LoadNativePointer( thiz ) );
+      return ( nativeThis->SetValueByGlobalEnum( e ) );
+    }
+
     static void __stdcall SetByGlobalStruct( MonoObject* thiz, const ::Test::GlobalStruct& s )
     {
       auto nativeThis = reinterpret_cast< ::Test::ScriptTest* >( EasyMono::LoadNativePointer( thiz ) );
@@ -156,10 +168,10 @@ void RegisterScriptInterface()
       return ( nativeThis->SetWhatever( v ) );
     }
 
-    static MonoString* __stdcall ConcatCString( MonoObject* thiz, MonoString* other )
+    static MonoString* __stdcall ConcatString( MonoObject* thiz, MonoString* other )
     {
       auto nativeThis = reinterpret_cast< ::Test::ScriptTest* >( EasyMono::LoadNativePointer( thiz ) );
-      auto monoRetStr = ( nativeThis->ConcatCString( other ? mono_string_chars( other ) : nullptr ) );
+      auto monoRetStr = ( nativeThis->ConcatString( other ? mono_string_chars( other ) : nullptr ) );
       return monoRetStr ? mono_string_new_utf16( mono_get_root_domain(), monoRetStr, int( wcslen( monoRetStr ) ) ) : nullptr;
     }
 
@@ -223,16 +235,16 @@ void RegisterScriptInterface()
       return ( nativeThis->DoubleItAndReturn(  ) );
     }
 
-    static void __stdcall MultiplaAdd( MonoObject* thiz, int a, int b )
+    static void __stdcall MultiplyAdd( MonoObject* thiz, int a, int b )
     {
       auto nativeThis = reinterpret_cast< ::Test::ScriptTest* >( EasyMono::LoadNativePointer( thiz ) );
-      return ( nativeThis->MultiplaAdd( a, b ) );
+      return ( nativeThis->MultiplyAdd( a, b ) );
     }
 
-    static int __stdcall MultiplaAddAndReturn( MonoObject* thiz, int a, int b )
+    static int __stdcall MultiplyAddAndReturn( MonoObject* thiz, int a, int b )
     {
       auto nativeThis = reinterpret_cast< ::Test::ScriptTest* >( EasyMono::LoadNativePointer( thiz ) );
-      return ( nativeThis->MultiplaAddAndReturn( a, b ) );
+      return ( nativeThis->MultiplyAddAndReturn( a, b ) );
     }
 
     static IS<::DirectX::XMFLOAT2>::type __stdcall GetVector2( MonoObject* thiz )
@@ -244,6 +256,8 @@ void RegisterScriptInterface()
   };
 
   mono_add_internal_call( "Test.ScriptTest::Ctor", Test____Test__ScriptTest::ScriptTest );
+  mono_add_internal_call( "Test.ScriptTest::SetValueByLocalEnum", Test____Test__ScriptTest::SetValueByLocalEnum );
+  mono_add_internal_call( "Test.ScriptTest::SetValueByGlobalEnum", Test____Test__ScriptTest::SetValueByGlobalEnum );
   mono_add_internal_call( "Test.ScriptTest::SetByGlobalStruct", Test____Test__ScriptTest::SetByGlobalStruct );
   mono_add_internal_call( "Test.ScriptTest::GetGlobalStruct", Test____Test__ScriptTest::GetGlobalStruct );
   mono_add_internal_call( "Test.ScriptTest::SetByLocalStruct", Test____Test__ScriptTest::SetByLocalStruct );
@@ -256,7 +270,7 @@ void RegisterScriptInterface()
   mono_add_internal_call( "Test.ScriptTest::SetVector", Test____Test__ScriptTest::SetVector );
   mono_add_internal_call( "Test.ScriptTest::GetZeroVector", Test____Test__ScriptTest::GetZeroVector );
   mono_add_internal_call( "Test.ScriptTest::SetWhatever", Test____Test__ScriptTest::SetWhatever );
-  mono_add_internal_call( "Test.ScriptTest::ConcatCString", Test____Test__ScriptTest::ConcatCString );
+  mono_add_internal_call( "Test.ScriptTest::ConcatString", Test____Test__ScriptTest::ConcatString );
   mono_add_internal_call( "Test.ScriptTest::ClassPtr", Test____Test__ScriptTest::ClassPtr );
   mono_add_internal_call( "Test.ScriptTest::ClassRef", Test____Test__ScriptTest::ClassRef );
   mono_add_internal_call( "Test.ScriptTest::ClassCref", Test____Test__ScriptTest::ClassCref );
@@ -267,8 +281,8 @@ void RegisterScriptInterface()
   mono_add_internal_call( "Test.ScriptTest::AddVectorsByRef", Test____Test__ScriptTest::AddVectorsByRef );
   mono_add_internal_call( "Test.ScriptTest::DoubleIt", Test____Test__ScriptTest::DoubleIt );
   mono_add_internal_call( "Test.ScriptTest::DoubleItAndReturn", Test____Test__ScriptTest::DoubleItAndReturn );
-  mono_add_internal_call( "Test.ScriptTest::MultiplaAdd", Test____Test__ScriptTest::MultiplaAdd );
-  mono_add_internal_call( "Test.ScriptTest::MultiplaAddAndReturn", Test____Test__ScriptTest::MultiplaAddAndReturn );
+  mono_add_internal_call( "Test.ScriptTest::MultiplyAdd", Test____Test__ScriptTest::MultiplyAdd );
+  mono_add_internal_call( "Test.ScriptTest::MultiplyAddAndReturn", Test____Test__ScriptTest::MultiplyAddAndReturn );
   mono_add_internal_call( "Test.ScriptTest::GetVector2", Test____Test__ScriptTest::GetVector2 );
 
 

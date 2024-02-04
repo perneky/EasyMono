@@ -2,18 +2,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-
-namespace Test
-{
-  [StructLayout(LayoutKind.Sequential)]
-  public struct GlobalStruct
-  {
-    public int thisValue;
-    public int thatValue;
-
-  }
-}
-
 namespace Test
 {
   public sealed class ScriptTest : EasyMono.NativeReference
@@ -27,6 +15,15 @@ namespace Test
 
     }
 
+
+    public enum LocalEnum : int
+    {
+      One = 1,
+      Two = 2,
+      Four = 4,
+
+    }
+
     ScriptTest( ulong thiz ) : base( thiz )
     {
     }
@@ -37,6 +34,12 @@ namespace Test
 
     [MethodImpl(MethodImplOptions.InternalCall)]
     extern static UInt64 Ctor( int a, string? s, ref readonly System.Numerics.Vector3 v );
+
+    [MethodImpl(MethodImplOptions.InternalCall)]
+    public extern void SetValueByLocalEnum( Test.ScriptTest.LocalEnum e );
+
+    [MethodImpl(MethodImplOptions.InternalCall)]
+    public extern void SetValueByGlobalEnum( Test.Enum.Enum2 e );
 
     [MethodImpl(MethodImplOptions.InternalCall)]
     public extern void SetByGlobalStruct( ref readonly Test.GlobalStruct s );
@@ -75,7 +78,7 @@ namespace Test
     public extern void SetWhatever( int v );
 
     [MethodImpl(MethodImplOptions.InternalCall)]
-    public extern string? ConcatCString( string? other );
+    public extern string? ConcatString( string? other );
 
     [MethodImpl(MethodImplOptions.InternalCall)]
     public extern int ClassPtr( Test.ScriptTest? p );
@@ -108,10 +111,10 @@ namespace Test
     public extern int DoubleItAndReturn(  );
 
     [MethodImpl(MethodImplOptions.InternalCall)]
-    public extern void MultiplaAdd( int a, int b );
+    public extern void MultiplyAdd( int a, int b );
 
     [MethodImpl(MethodImplOptions.InternalCall)]
-    public extern int MultiplaAddAndReturn( int a, int b );
+    public extern int MultiplyAddAndReturn( int a, int b );
 
     [MethodImpl(MethodImplOptions.InternalCall)]
     public extern System.Numerics.Vector2 GetVector2(  );

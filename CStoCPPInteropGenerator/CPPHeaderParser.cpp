@@ -12,26 +12,15 @@ auto csFileTemplate = LR"(
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-@
-
 namespace @
 {
   public @class @ : @
   {
 @
+@
     @( ulong thiz ) : base( thiz )
     {
     }
-@
-  }
-})";
-
-auto csGlobalStructTemplate = LR"(
-namespace @
-{
-  [StructLayout(LayoutKind.Sequential)]
-  public struct @
-  {
 @
   }
 })";
@@ -47,6 +36,20 @@ auto csLocalStructTemplate = LR"(
 auto csStandaloneStructTemplate = LR"(
   [StructLayout(LayoutKind.Sequential)]
   public struct @
+  {
+@
+  }
+)";
+
+auto csLocalEnumTemplate = LR"(
+    public enum @ : @
+    {
+@
+    }
+)";
+
+auto csStandaloneEnumTemplate = LR"(
+  public enum @ : @
   {
 @
   }
@@ -353,8 +356,19 @@ struct ClassDesc
   std::vector< std::wstring > baseClasses;
 };
 
+struct EnumDesc
+{
+  std::wstring type;
+  std::wstring name;
+  std::wstring nameSpace;
+  std::wstring header;
+  std::vector< std::pair< std::wstring, int64_t > > values;
+  mutable bool isExported = false;
+};
+
 std::unordered_map< std::wstring, ClassDesc > classes;
 std::unordered_map< std::wstring, StructDesc > structs;
+std::unordered_map< std::wstring, EnumDesc > enums;
 
 std::vector<CXCursor> stack;
 
@@ -404,7 +418,7 @@ std::wstring GetFullName( CXCursor cursor )
   if ( cursor.kind == CXCursor_TranslationUnit )
     return L"";
 
-  if ( cursor.kind == CXCursor_ClassDecl || cursor.kind == CXCursor_ClassTemplate || cursor.kind == CXCursor_StructDecl || cursor.kind == CXCursor_Namespace )
+  if ( cursor.kind == CXCursor_ClassDecl || cursor.kind == CXCursor_ClassTemplate || cursor.kind == CXCursor_StructDecl || cursor.kind == CXCursor_Namespace || cursor.kind == CXCursor_EnumDecl )
     return GetFullName( clang_getCursorSemanticParent( cursor ) ) + L"::" + ToString( cursor );
 
   return L"";
@@ -509,6 +523,8 @@ ClassDesc::MethodDesc::ArgumentDesc ParseArgument( CXType type, bool isConst )
     TranslateKnownStructureNames( arg.type );
     return arg;
   }
+  case CXType_Typedef:
+    return ParseArgument( clang_getCanonicalType( type ), isConst);
   }
 
   ClassDesc::MethodDesc::ArgumentDesc arg;
@@ -663,6 +679,50 @@ ClassDesc::MethodDesc ParseMethod( CXCursor cursor )
   return desc;
 }
 
+void ParseEnum( CXCursor cursor )
+{
+  if ( IsInIgnoredNamespace() )
+    return;
+
+  auto name = GetFullName( cursor );
+
+  if ( name.find( L' ' ) != name.npos )
+    return;
+
+  auto key = name;
+
+  std::wstring nameSpace = GetStackNamespace();
+
+  auto iter = enums.find( key );
+  if ( iter != enums.end() )
+    return;
+
+  auto& inum = enums[ key ];
+
+  auto enumType = clang_getEnumDeclIntegerType( cursor );
+
+  inum.type = ParseArgument( enumType.kind == CXTypeKind::CXType_Elaborated ? clang_Type_getNamedType( enumType ) : enumType, false ).type.name;
+  inum.name = name;
+  inum.nameSpace = nameSpace;
+  inum.header = ParseHeader( cursor );
+
+  clang_visitChildren( cursor, []( CXCursor cursor, CXCursor parent, CXClientData client_data )
+    {
+      auto& inum = *static_cast<EnumDesc*>( client_data );
+
+      auto kind = clang_getCursorKind( cursor );
+      switch ( kind )
+      {
+      case CXCursor_EnumConstantDecl:
+        inum.values.emplace_back( std::make_pair( ToString( cursor ), clang_getEnumConstantDeclValue( cursor ) ) );
+        return CXChildVisit_Continue;
+
+      default:
+        return CXChildVisit_Continue;
+      }
+    }, &inum );
+}
+
 void ParseClass( CXCursor cursor )
 {
   if ( IsInIgnoredNamespace() )
@@ -716,6 +776,9 @@ void ParseClass( CXCursor cursor )
     case CXCursor_StructDecl:
       ParseStruct( cursor );
       return CXChildVisit_Continue;
+    case CXCursor_EnumDecl:
+      ParseEnum( cursor );
+      return CXChildVisit_Continue;
     default:
       break;
     }
@@ -752,6 +815,9 @@ CXChildVisitResult visitTranslationUnit( CXCursor cursor, CXCursor parent, CXCli
   case CXCursor_StructDecl:
     ParseStruct( cursor );
     return CXChildVisit_Continue;
+  case CXCursor_EnumDecl:
+    ParseEnum( cursor );
+    break;
   default:
     break;
   }
@@ -952,14 +1018,13 @@ std::wstring ExportStructureFields( const StructDesc& desc, const wchar_t* inden
   return code;
 }
 
-std::wstring ExportGlobalStructures( const ClassDesc& desc )
+std::wstring ExportEnumValues( const EnumDesc& desc, const wchar_t* indentation )
 {
   std::wstring code;
 
-  for ( auto& strukt : structs )
-    if ( desc.header == strukt.second.header )
-      if ( !IsStartsWith( strukt.first, desc.name ) )
-        code += FormatString( csGlobalStructTemplate, strukt.second.nameSpace, JustName( strukt.second.name ), ExportStructureFields( strukt.second, L"    " ) );
+  desc.isExported = true;
+  for ( auto& value : desc.values )
+    code += indentation + value.first + L" = " + std::to_wstring( value.second ) + L",\n";
 
   return code;
 }
@@ -975,6 +1040,17 @@ std::wstring ExportLocalStructures( const ClassDesc& desc )
   return code;
 }
 
+std::wstring ExportLocalEnums( const ClassDesc& desc )
+{
+  std::wstring code;
+
+  for ( auto& inum : enums )
+    if ( IsStartsWith( inum.first, desc.name ) )
+      code += FormatString( csLocalEnumTemplate, JustName( inum.second.name ), inum.second.type, ExportEnumValues( inum.second, L"      " ) );
+
+  return code;
+}
+
 void WriteCSClass( const ClassDesc& desc, std::filesystem::path path, const wchar_t* scriptedBaseName )
 {
   if ( desc.nameSpace.empty() )
@@ -985,12 +1061,12 @@ void WriteCSClass( const ClassDesc& desc, std::filesystem::path path, const wcha
     return;
 
   auto fileContents = FormatString( csFileTemplate
-                                  , ExportGlobalStructures( desc )
                                   , ChangeNamespaceSeparator( desc.nameSpace, L"." )
                                   , ExportClassQualifier( desc )
                                   , JustName( desc.name )
                                   , ExportBaseName( *scriptedBase, scriptedBaseName )
                                   , ExportLocalStructures( desc )
+                                  , ExportLocalEnums( desc )
                                   , JustName( desc.name )
                                   , ExportCSMethods( desc ) );
 
@@ -1012,6 +1088,7 @@ void WriteCSStructs( std::filesystem::path path )
 {
   std::unordered_set< std::wstring > namespacesToWrite;
   std::unordered_multimap< std::wstring, StructDesc > structuresToWrite;
+  std::unordered_multimap< std::wstring, EnumDesc > enumsToWrite;
 
   for ( auto& strukt : structs )
     if ( !strukt.second.isExported )
@@ -1020,19 +1097,31 @@ void WriteCSStructs( std::filesystem::path path )
       structuresToWrite.insert( { strukt.second.nameSpace, strukt.second } );
     }
 
-  if ( structuresToWrite.empty() )
+  for ( auto& inum : enums )
+    if ( !inum.second.isExported )
+    {
+      namespacesToWrite.insert( inum.second.nameSpace );
+      enumsToWrite.insert( { inum.second.nameSpace, inum.second } );
+    }
+
+  if ( namespacesToWrite.empty() )
     return;
 
   std::wstring code = L"using System.Runtime.InteropServices;\n\n";
 
   for ( auto& nameSpace : namespacesToWrite )
   {
-    auto range = structuresToWrite.equal_range( nameSpace );
-
     code += L"namespace " + ChangeNamespaceSeparator( nameSpace, L"." ) + L"\n{\n";
 
-    for ( auto iter = range.first; iter != range.second; ++iter )
-      code += FormatString( csStandaloneStructTemplate, JustName( iter->second.name ), ExportStructureFields( iter->second, L"    " ) );
+    auto structRange = structuresToWrite.equal_range( nameSpace );
+    if ( structRange.first != structRange.second )
+      for ( auto iter = structRange.first; iter != structRange.second; ++iter )
+        code += FormatString( csStandaloneStructTemplate, JustName( iter->second.name ), ExportStructureFields( iter->second, L"    " ) );
+
+    auto enumRange = enumsToWrite.equal_range( nameSpace );
+    if ( enumRange.first != enumRange.second )
+      for ( auto iter = enumRange.first; iter != enumRange.second; ++iter )
+        code += FormatString( csStandaloneEnumTemplate, JustName( iter->second.name ), iter->second.type, ExportEnumValues( iter->second, L"    " ) );
 
     code += L"}\n\n";
   }
