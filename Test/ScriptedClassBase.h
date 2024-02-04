@@ -1,9 +1,5 @@
-struct Foo1 {};
-
 #include <Include/EasyMono.h>
 #include <iostream>
-
-struct Foo2 {};
 
 template< typename Impl >
 class ScriptedClassBase;

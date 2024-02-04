@@ -1,3 +1,4 @@
+
 # EasyMono
 A header only library and a set of tools, making embedding Mono easy.
 
@@ -22,6 +23,12 @@ With these two tools, EasyMono creates a seamless interop between the two worlds
 
 # The dictionary
 Both tools take a path to a dictionary file. This file contains type name pairs. The first is the native name, while the second is the managed name. If the tools encounter these types on interfaces, they will generate code to pass the variable as a structure. It will be a constant reference on the native side, and a `ref readonly` on the managed side.
+
+You only have to used the dictionary for structures which has builtin counterparts in the managed world, like mapping an `XMFLOAT4` to `System.Numerics.Vector4`. The rest of the structures, the tools can auto generate on the managed side.
+For every struct which has `EasyMono::ScriptedStruct` as its base, a counterpart will be generated in `CppStructures.cs`. There are some restrictions though so they can be mapped to the native counterparts:
+ - Its only base is the `EasyMono::ScriptedStruct`, no multiple bases
+ - Its direct base is the `EasyMono::ScriptedStruct`
+ - Only has primitive types as fields (int, float, etc.)
 
 # EasyMono.h
 This single header contains the native code which you need to get mono and the integration up and running. You can include it anywhere where you need to use its functions directly, or the `EasyMono::ScriptedClass` class. But you have to include it into a single CPP file after defining `IMPLEMENT_EASY_MONO` to have the implementation.
@@ -86,7 +93,9 @@ The roadmap (to be expanded):
  - [x] Being able to call managed function from the native world
  - [x] Unique pointer integration showcase
  - [x] Configurable structure types
- - [x] Adding convenience attributes over get* and set* functions in the generated C# classes
- - [ ] Automatic handling of structures not in the dictionary
+ - [x] Automatic handling of structures not in the dictionary
  - [ ] Handling enums in the tools
  - [ ] Handling callbacks in the tools
+ - [ ] Handling lists
+ - [ ] Handling dictionaries
+ - [ ] Handling lists and dictionaries in structs

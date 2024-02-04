@@ -1,10 +1,7 @@
 #pragma once
 
-struct Foo0 {};
-
 #include "ScriptedClassBase.h"
-
-struct Foo3 {};
+#include "TestStruct.h"
 
 #include <string>
 #include <DirectXMath.h>
@@ -13,11 +10,23 @@ using namespace DirectX;
 
 namespace Test
 {
+  struct GlobalStruct : EasyMono::ScriptedStruct
+  {
+    int thisValue;
+    int thatValue;
+  };
+
   class ScriptTest final : public ScriptedClassBase< ScriptTest >
   {
     static MonoClass* GetMonoClass();
 
   public:
+    struct LocalStruct : EasyMono::ScriptedStruct
+    {
+      int thisValue;
+      int thatValue;
+    };
+
     ScriptTest( int a, const wchar_t* s, const XMFLOAT3& v )
       : ScriptedClassBase( GetMonoClass() )
       , value( a )
@@ -28,6 +37,26 @@ namespace Test
 
     ~ScriptTest()
     {
+    }
+
+    void SetByGlobalStruct( const GlobalStruct& s )
+    {
+      value = s.thisValue + s.thatValue;
+    }
+
+    GlobalStruct GetGlobalStruct() const
+    {
+      return GlobalStruct{ .thisValue = value, .thatValue = 1 };
+    }
+
+    void SetByLocalStruct( const LocalStruct& s )
+    {
+      value = s.thisValue + s.thatValue;
+    }
+
+    LocalStruct GetLocalStruct() const
+    {
+      return LocalStruct{ .thisValue = value, .thatValue = 2 };
     }
 
     int GetValue() const
@@ -145,6 +174,11 @@ namespace Test
     {
       value = value * a + b;
       return value;
+    }
+
+    XMFLOAT2 GetVector2() const
+    {
+      return XMFLOAT2( 3, 4 );
     }
 
   private:

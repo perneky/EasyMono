@@ -12,7 +12,7 @@ namespace MonoTest
       Console.WriteLine( "Starting with " + nativeTester.GetValue().ToString() );
 
       var ctorArg = new Vector3( 13, 24, 35 );
-      var tester = new Test.ScriptTest( nativeTester.GetValue(), nativeTester.GetString(), in ctorArg );
+      var tester = new Test.ScriptTest( nativeTester.GetValue(), nativeTester.GetString(), ref ctorArg );
 
       var tester2 = nativeTester.ClassPass( tester );
       var tester3 = tester.ClassPass( nativeTester );
@@ -50,6 +50,17 @@ namespace MonoTest
 
       var matTransRef = tester.TransposeMatrixByRef( ref mat );
       Console.WriteLine( matTransRef.ToString() );
+
+      var globalStruct = new Test.GlobalStruct { thisValue = 5, thatValue = 10 };
+      var localStruct = new Test.ScriptTest.LocalStruct { thisValue = 15, thatValue = 20 };
+
+      tester.SetByGlobalStruct( ref globalStruct );
+      Console.WriteLine( "Value by global struct: " + tester.GetValue() );
+      Console.WriteLine( "" + tester.GetGlobalStruct().ToString() );
+
+      tester.SetByLocalStruct( ref localStruct );
+      Console.WriteLine( "Value by local struct: " + tester.GetValue() );
+      Console.WriteLine( "" + tester.GetLocalStruct().ToString() );
 
       return tmp;
     }

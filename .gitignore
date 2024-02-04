@@ -5,4 +5,5 @@ CStoCPPInteropGenerator/x64
 Test/x64
 TestManaged/bin
 TestManaged/obj
+TestManaged/Generated
 x64

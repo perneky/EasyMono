@@ -1,36 +1,35 @@
 
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+
+
+namespace Test
+{
+  [StructLayout(LayoutKind.Sequential)]
+  public struct GlobalStruct
+  {
+    public int thisValue;
+    public int thatValue;
+
+  }
+}
 
 namespace Test
 {
   public sealed class ScriptTest : EasyMono.NativeReference
   {
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct LocalStruct
+    {
+      public int thisValue;
+      public int thatValue;
+
+    }
+
     ScriptTest( ulong thiz ) : base( thiz )
     {
     }
-
-    public int Value
-    {
-      get => GetValue();
-      set => SetValue( value );
-    }
-
-    public string? String
-    {
-      get => GetString();
-      set => SetString( value );
-    }
-
-    public System.Numerics.Vector3 Vector
-    {
-      get => GetVector();
-      set => SetVector( in value );
-    }
-
-    public System.Numerics.Vector4 ZeroVector => GetZeroVector();
-
-    public int Whatever { set => SetWhatever( value ); }
-
 
     public ScriptTest( int a, string? s, ref readonly System.Numerics.Vector3 v ) : base( Ctor( a, s, in v ) )
     {
@@ -38,6 +37,18 @@ namespace Test
 
     [MethodImpl(MethodImplOptions.InternalCall)]
     extern static UInt64 Ctor( int a, string? s, ref readonly System.Numerics.Vector3 v );
+
+    [MethodImpl(MethodImplOptions.InternalCall)]
+    public extern void SetByGlobalStruct( ref readonly Test.GlobalStruct s );
+
+    [MethodImpl(MethodImplOptions.InternalCall)]
+    public extern Test.GlobalStruct GetGlobalStruct(  );
+
+    [MethodImpl(MethodImplOptions.InternalCall)]
+    public extern void SetByLocalStruct( ref readonly Test.ScriptTest.LocalStruct s );
+
+    [MethodImpl(MethodImplOptions.InternalCall)]
+    public extern Test.ScriptTest.LocalStruct GetLocalStruct(  );
 
     [MethodImpl(MethodImplOptions.InternalCall)]
     public extern int GetValue(  );
@@ -101,6 +112,9 @@ namespace Test
 
     [MethodImpl(MethodImplOptions.InternalCall)]
     public extern int MultiplaAddAndReturn( int a, int b );
+
+    [MethodImpl(MethodImplOptions.InternalCall)]
+    public extern System.Numerics.Vector2 GetVector2(  );
 
   }
 }

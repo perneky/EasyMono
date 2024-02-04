@@ -21,6 +21,8 @@ namespace EasyMono
     void __stdcall NRelease( uint64_t nativePtr );
   }
 
+  struct ScriptedStruct {};
+
   class ScriptedClass
   {
     friend void Detail::NAddRef( uint64_t nativePtr, MonoObject* monoObject );
@@ -129,7 +131,6 @@ namespace EasyMono
 
     auto monoClass = mono_object_get_class( monoObject );
     assert( monoClass );
-    auto foo = mono_class_get_name( monoClass );
     auto pointerField = mono_class_get_field_from_name( monoClass, "pointer" );
     assert( pointerField );
 
