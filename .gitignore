@@ -4,6 +4,7 @@ CPPtoCSInteropGenerator/obj
 CStoCPPInteropGenerator/x64
 Test/x64
 Test/x64
+Test/CSInterop
 Test/Generated
 TestManaged/bin
 TestManaged/obj
