@@ -56,6 +56,9 @@ Strings are always a special type. On the interop interfaces, the tools recogniz
 When the C++ header parser encounters a definition of an `std::function` like so `using Foo = std::function< int(float floatArg, const wchar_t* stringArg)>` it generates a delegate in the C# side, like so: `public delegate int Foo( float floatArg, string? stringArg )`.
 On every exported C++ method which takes this type as an Rvalue reference, a managed delegate can be passed. The tool will generate a C++ wrapper function which takes these arguments, and calls the managed delegate object with it.
 
+# Method specifiers
+On C++ methods, the `static`, `virtual` and `override` specifiers are parsed accordingly. You have to make sure to use `override` in native code properly, or the generated C# code is going to generate warnings about hiding the previous virtual method.
+
 # Tools result
 With these two tools, EasyMono creates a seamless interop between the two worlds. All you need to do is to run them as your scripted C++ classes or your managed exported methods change, and the matching interop mechanism will be generated for you. Always up to date.
 
@@ -122,8 +125,8 @@ The roadmap (to be expanded):
  - [x] Automatic handling of structures not in the dictionary
  - [x] Handling enums in the tools
  - [x] Handling callbacks in the tools
- - [ ] Handling static, virtual and overridden methods
- - [ ] Handling strings in structs
+ - [x] Handling static, virtual and overridden methods
  - [ ] Handling lists
  - [ ] Handling dictionaries
+ - [ ] Handling strings in structs
  - [ ] Handling lists and dictionaries in structs

@@ -123,6 +123,16 @@ namespace MonoTest
       var callbackStruct = new Test.Struct1.LargestStruct { a = 1, b = 3, c = 5, d = 7 };
       Console.WriteLine( "Callback returned with " + tester.CallCallback( 32, "Callbacks are awesome!", ref callbackStruct, nativeTester, Test.Enum.Enum2.E ) );
 
+      /////////////////////////////////////////////////
+      Console.WriteLine( "" );
+      Console.WriteLine( "Testing static functions" );
+      Console.WriteLine( "========================" );
+      var testerFromStatic = Test.ScriptTest.CreateInstance( 45, "testerFromStatic", ref va );
+      if ( testerFromStatic is null )
+        Console.WriteLine( $"testerFromStatic is null!" );
+      else
+        Console.WriteLine( $"testerFromStatic is " + testerFromStatic.GetValue() + ", " + testerFromStatic.GetString() );
+
       return tmp;
     }
   }

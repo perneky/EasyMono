@@ -18,7 +18,7 @@ namespace @
   {
 @
 @
-    @( ulong thiz ) : base( thiz )
+    @@( ulong thiz ) : base( thiz )
     {
     }
 @
@@ -68,7 +68,7 @@ auto csExportedCtorTemplate = LR"(
 
 auto csExportedMethodTemplate = LR"(
     [MethodImpl(MethodImplOptions.InternalCall)]
-    public extern @ @( @ );
+    public extern @@ @( @ );
 )";
 
 auto csDelegateTemplate = LR"(
@@ -210,6 +210,13 @@ auto cppMethodTemplate = LR"(
     {@
       auto nativeThis = reinterpret_cast< @* >( EasyMono::LoadNativePointer( thiz ) );
       @ @( nativeThis->@( @ )@ );@
+    }
+)";
+
+auto cppStaticMethodTemplate = LR"(
+    static @ __stdcall @( @ )
+    {@
+      @ @( @::@( @ )@ );@
     }
 )";
 
@@ -366,6 +373,9 @@ struct MethodDesc
   std::wstring name;
   ArgumentDesc returnValue;
   std::vector< ArgumentDesc > arguments;
+  bool isStatic;
+  bool isVirtual;
+  bool isOverride;
 };
 
 struct ClassDesc
@@ -714,17 +724,22 @@ MethodDesc ParseMethod( CXCursor cursor )
 
   desc.name = ToString( cursor );
 
-  if ( desc.name == L"SetCallback" )
-    std::cout << "SetCallback";
-
   bool isCtor = clang_getCursorKind( cursor ) == CXCursor_Constructor;
 
   if ( isCtor )
   {
+    desc.isStatic = false;
+    desc.isVirtual = false;
+    desc.isOverride = false;
+
     desc.returnValue.type.kind = TypeDesc::Kind::None;
   }
   else
   {
+    desc.isStatic = clang_CXXMethod_isStatic( cursor );
+    desc.isVirtual = clang_CXXMethod_isVirtual( cursor );
+    desc.isOverride = false;
+
     auto retType = clang_getCursorResultType( cursor );
     auto retIsConst = clang_isConstQualifiedType( clang_getNonReferenceType( retType ) );
     desc.returnValue = ParseArgument( retType, retIsConst, false, false, false );
@@ -763,6 +778,20 @@ MethodDesc ParseMethod( CXCursor cursor )
         methodArg.type.csName.erase( methodArg.type.csName.begin() );
     }
   }
+
+  clang_visitChildren( cursor, []( CXCursor cursor, CXCursor parent, CXClientData client_data )
+  {
+    auto& desc = *static_cast< MethodDesc* >( client_data );
+
+    auto kind = clang_getCursorKind( cursor );
+    switch ( kind )
+    {
+    case CXCursor_CXXOverrideAttr:
+      desc.isOverride = true;
+      return CXChildVisit_Break;
+    }
+    return CXChildVisit_Continue;
+  }, &desc);
 
   return desc;
 }
@@ -1114,7 +1143,7 @@ std::wstring ExportCPPArgument( const ArgumentDesc& argDesc )
 std::wstring ExportBaseName( const ClassDesc& scriptedBase, const wchar_t* scriptedBaseName )
 {
   bool isSC = scriptedBase.name == scriptedBaseName;
-  return isSC ? L"EasyMono.NativeReference" : ( L"public " + scriptedBase.nameSpace + L"." + scriptedBase.name );
+  return isSC ? L"EasyMono.NativeReference" : ChangeNamespaceSeparator( scriptedBase.name, L"." );
 }
 
 std::wstring ExportClassQualifier( const ClassDesc& desc )
@@ -1166,6 +1195,17 @@ std::wstring ExportCSMethodArgumentNames( const MethodDesc& methodDesc )
   return code;
 }
 
+std::wstring ExportCSMethodQualifier( const MethodDesc& methodDesc )
+{
+  if ( methodDesc.isStatic )
+    return L"static ";
+  if ( methodDesc.isOverride )
+    return L"override ";
+  if ( methodDesc.isVirtual )
+    return L"virtual ";
+  return L"";
+}
+
 std::wstring ExportCSMethods( const ClassDesc& desc )
 {
   std::wstring code;
@@ -1184,6 +1224,7 @@ std::wstring ExportCSMethods( const ClassDesc& desc )
                           , ExportCSMethodArguments( methodDesc ) );
     else
       code += FormatString( csExportedMethodTemplate
+                          , ExportCSMethodQualifier( methodDesc )
                           , ExportCSArgumentType( methodDesc.returnValue )
                           , methodDesc.name
                           , ExportCSMethodArguments( methodDesc ) );
@@ -1251,6 +1292,7 @@ void WriteCSClass( const ClassDesc& desc, std::filesystem::path path, const wcha
                                   , ExportBaseName( *scriptedBase, scriptedBaseName )
                                   , ExportLocalStructures( desc )
                                   , ExportLocalEnums( desc )
+                                  , desc.isFinal ? L"" : L"protected "
                                   , JustName( desc.name )
                                   , ExportCSMethods( desc ) );
 
@@ -1418,7 +1460,7 @@ std::wstring ExportCPPMethodArgumentNames( const MethodDesc& methodDesc )
   return code;
 }
 
-std::wstring ExportNativeThisPrefix( const MethodDesc& methodDesc )
+std::wstring ExportNativeCallPrefix( const MethodDesc& methodDesc )
 {
   if ( methodDesc.returnValue.type.kind == TypeDesc::Kind::String )
     return L"auto monoRetStr =";
@@ -1426,7 +1468,7 @@ std::wstring ExportNativeThisPrefix( const MethodDesc& methodDesc )
     return L"return";
 }
 
-std::wstring ExportNativeThisPostfix( const MethodDesc& methodDesc )
+std::wstring ExportNativeCallPostfix( const MethodDesc& methodDesc )
 {
   return methodDesc.returnValue.type.kind == TypeDesc::Kind::Class ? L"->GetOrCreateMonoObject()" : L"";
 }
@@ -1580,19 +1622,33 @@ std::wstring ExportClassBindings( const ClassDesc& desc )
     if ( methodDesc.returnValue.type.kind == TypeDesc::Kind::None )
       continue;
 
-    code += FormatString( cppMethodTemplate
-                        , ExportCPPArgumentType( methodDesc.returnValue, true )
-                        , methodDesc.name
-                        , methodDesc.arguments.empty() ? L"" : L", "
-                        , ExportCPPMethodArguments( methodDesc )
-                        , ExportDelegateWrappers( methodDesc )
-                        , desc.name
-                        , ExportNativeThisPrefix( methodDesc )
-                        , ExportReturnStructureHandling( methodDesc )
-                        , methodDesc.name
-                        , ExportCPPMethodArgumentNames( methodDesc )
-                        , ExportNativeThisPostfix( methodDesc )
-                        , ExportCPPReturnStringHandling( methodDesc ) );
+    if ( methodDesc.isStatic )
+      code += FormatString( cppStaticMethodTemplate
+                          , ExportCPPArgumentType( methodDesc.returnValue, true )
+                          , methodDesc.name
+                          , ExportCPPMethodArguments( methodDesc )
+                          , ExportDelegateWrappers( methodDesc )
+                          , ExportNativeCallPrefix( methodDesc )
+                          , ExportReturnStructureHandling( methodDesc )
+                          , desc.name
+                          , methodDesc.name
+                          , ExportCPPMethodArgumentNames( methodDesc )
+                          , ExportNativeCallPostfix( methodDesc )
+                          , ExportCPPReturnStringHandling( methodDesc ) );
+    else
+      code += FormatString( cppMethodTemplate
+                          , ExportCPPArgumentType( methodDesc.returnValue, true )
+                          , methodDesc.name
+                          , methodDesc.arguments.empty() ? L"" : L", "
+                          , ExportCPPMethodArguments( methodDesc )
+                          , ExportDelegateWrappers( methodDesc )
+                          , desc.name
+                          , ExportNativeCallPrefix( methodDesc )
+                          , ExportReturnStructureHandling( methodDesc )
+                          , methodDesc.name
+                          , ExportCPPMethodArgumentNames( methodDesc )
+                          , ExportNativeCallPostfix( methodDesc )
+                          , ExportCPPReturnStringHandling( methodDesc ) );
   }
 
   return code;

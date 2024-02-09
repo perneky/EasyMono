@@ -47,10 +47,6 @@ namespace Test
     {
     }
 
-    ~ScriptTest()
-    {
-    }
-
     void SetCallback( GlobalDelegate&& callback )
     {
       globalDelegate = callback;
@@ -215,6 +211,11 @@ namespace Test
       return XMFLOAT2( 3, 4 );
     }
 
+    static ScriptTest* CreateInstance( int a, const wchar_t* s, const XMFLOAT3& v )
+    {
+      return new ScriptTest( a, s, v );
+    }
+
   public:
     int GetSqTheValue() const
     {
@@ -227,9 +228,29 @@ namespace Test
       return value * 2;
     }
 
+    ~ScriptTest()
+    {
+    }
+
     int value = 0;
     std::wstring str;
     XMFLOAT3 vec;
     GlobalDelegate globalDelegate;
+  };
+
+  class ScriptTestVirtual : public ScriptedClassBase< ScriptTest >
+  {
+    static MonoClass* GetMonoClass();
+
+  managed_export:
+    virtual void RandomVirtualMethod() {}
+  };
+
+  class ScriptTestOverride final : public ScriptTestVirtual
+  {
+    static MonoClass* GetMonoClass();
+
+  managed_export:
+    void RandomVirtualMethod() override {}
   };
 }
