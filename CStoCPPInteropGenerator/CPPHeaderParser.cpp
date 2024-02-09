@@ -71,20 +71,8 @@ auto csExportedMethodTemplate = LR"(
     public extern @ @( @ );
 )";
 
-auto csGetterSetterTemplate = LR"(
-    public @ @
-    {
-      get => @();
-      set => @( @value );
-    }
-)";
-
-auto csGetterTemplate = LR"(
-    public @ @ => @();
-)";
-
-auto csSetterTemplate = LR"(
-    public @ @ { set => @( @value ); }
+auto csDelegateTemplate = LR"(
+@public delegate @ @( @ );
 )";
 
 auto cppFileTemplate = LR"(
@@ -92,6 +80,8 @@ auto cppFileTemplate = LR"(
 #include <mono/metadata/class.h>
 #include <mono/metadata/object.h>
 #include <mono/metadata/appdomain.h>
+
+#include <memory>
 
 @
 namespace EasyMono
@@ -101,6 +91,24 @@ namespace EasyMono
   namespace Detail
   {
     MonoImage* GetMainMonoImage();
+
+    struct GCHolder
+    {
+      uint32_t handle = 0;
+      GCHolder( uint32_t handle ) : handle( handle ) {}
+      ~GCHolder() { if ( handle ) mono_gchandle_free( handle ); }
+      GCHolder( const GCHolder& ) = delete;
+      GCHolder& operator=( const GCHolder& ) = delete;
+      GCHolder( GCHolder&& other ) { handle = other.handle; other.handle = 0; }
+      GCHolder& operator=( GCHolder&& other ) { handle = other.handle; other.handle = 0; }
+    };
+
+    using GCHolderPtr = std::shared_ptr< GCHolder >;
+
+    static GCHolderPtr Hold( MonoObject* monoObject )
+    {
+      return std::make_shared< GCHolder >( mono_gchandle_new( monoObject, false ) );
+    }
 
     /* Some explanation. When a function is returning with a structure by value, the structure itself matters
      * in how the function is called on the assembly level. In Mono, all structures are PODs, and therefore
@@ -153,7 +161,7 @@ namespace EasyMono
 }
 
 template< typename T, typename Enable = void >
-using IS = ::EasyMono::Detail::interop_struct< T, Enable >;
+using IS = EasyMono::Detail::interop_struct< T, Enable >;
 
 void RegisterScriptInterface()
 {
@@ -199,7 +207,7 @@ auto cppCtorTemplate = LR"(
 
 auto cppMethodTemplate = LR"(
     static @ __stdcall @( MonoObject* thiz@@ )
-    {
+    {@
       auto nativeThis = reinterpret_cast< @* >( EasyMono::LoadNativePointer( thiz ) );
       @ @( nativeThis->@( @ )@ );@
     }
@@ -210,6 +218,21 @@ auto cppMethodRegistrationTemplate = LR"(
 
 auto cppStringArgTranslationTemplate = LR"(
       @ @CStr = @ ? @( mono_string_chars( @ ) ) : @();
+)";
+
+auto cppDelegateWrapperTemplate = LR"(
+      auto @__wrapper = [gchandle = EasyMono::Detail::Hold( @ )]( @ )
+      {
+        auto monoDelegateObject = mono_gchandle_get_target( gchandle->handle ); assert( monoDelegateObject );
+@
+        MonoObject* monoException = nullptr;
+        @mono_runtime_delegate_invoke( monoDelegateObject, @, &monoException );
+        if ( monoException )
+        {
+          EasyMono::Detail::PrintException( monoException );
+          assert( false );
+        }@
+      };
 )";
 
 template< typename T >
@@ -309,11 +332,13 @@ struct TypeDesc
     Struct,
     Class,
     String,
+    Enum,
+    Delegate,
   };
 
   Kind kind;
-  std::wstring name;
-  std::wstring csSpecificName;
+  std::wstring csName;
+  std::wstring cppName;
 };
 
 struct StructDesc
@@ -326,24 +351,25 @@ struct StructDesc
   mutable bool isExported = false;
 };
 
+struct ArgumentDesc
+{
+  std::wstring name;
+  TypeDesc type;
+  bool isConst;
+  bool isLValRef;
+  bool isRValRef;
+  bool isPointer;
+};
+
+struct MethodDesc
+{
+  std::wstring name;
+  ArgumentDesc returnValue;
+  std::vector< ArgumentDesc > arguments;
+};
+
 struct ClassDesc
 {
-  struct MethodDesc
-  {
-    struct ArgumentDesc
-    {
-      std::wstring name;
-      TypeDesc type;
-      bool isConst;
-      bool isReference;
-      bool isPointer;
-    };
-
-    std::wstring name;
-    ArgumentDesc returnValue;
-    std::vector< ArgumentDesc > arguments;
-  };
-
   std::wstring nameSpace;
   std::wstring name;
 
@@ -358,7 +384,8 @@ struct ClassDesc
 
 struct EnumDesc
 {
-  std::wstring type;
+  std::wstring csType;
+  std::wstring cppType;
   std::wstring name;
   std::wstring nameSpace;
   std::wstring header;
@@ -366,9 +393,20 @@ struct EnumDesc
   mutable bool isExported = false;
 };
 
+struct DelegateDesc
+{
+  std::wstring name;
+  std::wstring nameSpace;
+
+  ArgumentDesc returnValue;
+  std::vector< ArgumentDesc > arguments;
+  mutable bool isExported = false;
+};
+
 std::unordered_map< std::wstring, ClassDesc > classes;
 std::unordered_map< std::wstring, StructDesc > structs;
 std::unordered_map< std::wstring, EnumDesc > enums;
+std::unordered_map< std::wstring, DelegateDesc > delegates;
 
 std::vector<CXCursor> stack;
 
@@ -413,20 +451,34 @@ std::wstring ToString( CXType type )
   return str;
 }
 
-std::wstring GetFullName( CXCursor cursor )
+enum class Language { CS, CPP };
+std::wstring GetFullName( CXCursor cursor, Language lang )
 {
   if ( cursor.kind == CXCursor_TranslationUnit )
     return L"";
 
-  if ( cursor.kind == CXCursor_ClassDecl || cursor.kind == CXCursor_ClassTemplate || cursor.kind == CXCursor_StructDecl || cursor.kind == CXCursor_Namespace || cursor.kind == CXCursor_EnumDecl )
-    return GetFullName( clang_getCursorSemanticParent( cursor ) ) + L"::" + ToString( cursor );
+  if ( cursor.kind == CXCursor_ClassDecl
+    || cursor.kind == CXCursor_ClassTemplate
+    || cursor.kind == CXCursor_StructDecl
+    || cursor.kind == CXCursor_Namespace
+    || cursor.kind == CXCursor_EnumDecl
+    || cursor.kind == CXCursor_TypeAliasDecl )
+  {
+    auto parent = GetFullName( clang_getCursorSemanticParent( cursor ), lang );
+    if ( parent.empty() )
+      return ToString( cursor );
+    if ( lang == Language::CS )
+      return parent + L"." + ToString( cursor );
+    else
+      return parent + L"::" + ToString( cursor );
+  }
 
   return L"";
 }
 
-std::wstring GetFullName( CXType type )
+std::wstring GetFullName( CXType type, Language lang )
 {
-  return GetFullName( clang_getTypeDeclaration( clang_getCanonicalType( type ) ) );
+  return GetFullName( clang_getTypeDeclaration( clang_getCanonicalType( type ) ), lang );
 }
 
 bool Contains( const std::wstring& s, const wchar_t* sub )
@@ -436,24 +488,21 @@ bool Contains( const std::wstring& s, const wchar_t* sub )
 
 void TranslateKnownStructureNames( TypeDesc& arg )
 {
-  if ( arg.kind == TypeDesc::Kind::String )
-    arg.csSpecificName = L"string";
-  else
-  {
-    auto iter = std::find_if( knownStructures.begin(), knownStructures.end(), [ & ]( const KnownStructure& s ) { return arg.name == s.nativeName; } );
-    if ( iter != knownStructures.end() )
-      arg.csSpecificName = iter->managedName;
-  }
+  auto iter = std::find_if( knownStructures.begin(), knownStructures.end(), [ & ]( const KnownStructure& s ) { return arg.cppName == s.nativeName; } );
+  if ( iter != knownStructures.end() )
+    arg.csName = iter->managedName;
 }
 
-ClassDesc::MethodDesc::ArgumentDesc ParsePrimitiveArgument( const wchar_t* name, bool isConst, bool isPointer, bool isReference )
+ArgumentDesc ParsePrimitiveArgument( const wchar_t* csName, const wchar_t* cppName, bool isConst, bool isPointer, bool isLValRef, bool isRValRef )
 {
-  ClassDesc::MethodDesc::ArgumentDesc arg;
-  arg.type.kind   = TypeDesc::Kind::Primitive;
-  arg.type.name   = name;
-  arg.isConst     = isConst;
-  arg.isPointer   = false;
-  arg.isReference = false;
+  ArgumentDesc arg;
+  arg.type.kind    = TypeDesc::Kind::Primitive;
+  arg.type.csName  = csName;
+  arg.type.cppName = cppName;
+  arg.isConst      = isConst;
+  arg.isPointer    = isPointer;
+  arg.isLValRef    = isLValRef;
+  arg.isRValRef    = isRValRef;
   return arg;
 }
 
@@ -465,74 +514,86 @@ TypeDesc::Kind GetTypeKind( CXType type )
   auto decl = clang_getTypeDeclaration( clang_getCanonicalType( type ) );
   switch ( decl.kind )
   {
-  case CXCursor_ClassDecl: return TypeDesc::Kind::Class;
+  case CXCursor_ClassDecl:
+  {
+    auto name = GetFullName( decl, Language::CPP );
+    if ( name == L"std::function" )
+      return TypeDesc::Kind::Delegate;
+    return TypeDesc::Kind::Class;
+  }
   case CXCursor_StructDecl: return TypeDesc::Kind::Struct;
+  case CXCursor_EnumDecl: return TypeDesc::Kind::Enum;
   default: return TypeDesc::Kind::Primitive;
   }
 }
 
-ClassDesc::MethodDesc::ArgumentDesc ParseArgument( CXType type, bool isConst )
+ArgumentDesc ParseArgument( CXType type, bool isConst, bool isPointer, bool isLValRef, bool isRValRef )
 {
   switch ( type.kind )
   {
-  case CXType_Void: return ParsePrimitiveArgument( L"void", isConst, false, false );
-  case CXType_Bool: return ParsePrimitiveArgument( L"bool", isConst, false, false );
-  case CXType_Char_S: return ParsePrimitiveArgument( L"char", isConst, false, false );
-  case CXType_UChar: return ParsePrimitiveArgument( L"byte", isConst, false, false );
-  case CXType_UShort: return ParsePrimitiveArgument( L"ushort", isConst, false, false );
-  case CXType_UInt: return ParsePrimitiveArgument( L"uint", isConst, false, false );
-  case CXType_ULong: return ParsePrimitiveArgument( L"uint", isConst, false, false );
-  case CXType_ULongLong: return ParsePrimitiveArgument( L"ulong", isConst, false, false );
-  case CXType_SChar: return ParsePrimitiveArgument( L"sbyte", isConst, false, false );
-  case CXType_Short: return ParsePrimitiveArgument( L"short", isConst, false, false );
-  case CXType_Int: return ParsePrimitiveArgument( L"int", isConst, false, false );
-  case CXType_Long: return ParsePrimitiveArgument( L"int", isConst, false, false );
-  case CXType_LongLong: return ParsePrimitiveArgument( L"long", isConst, false, false );
-  case CXType_Float: return ParsePrimitiveArgument( L"float", isConst, false, false );
-  case CXType_Double: return ParsePrimitiveArgument( L"double", isConst, false, false );
-  case CXType_Pointer:
+  case CXType_Void: return ParsePrimitiveArgument( L"void", L"void", isConst, isPointer, isLValRef, isRValRef );
+  case CXType_Bool: return ParsePrimitiveArgument( L"bool", L"bool", isConst, isPointer, isLValRef, isRValRef );
+  case CXType_Char_S: return ParsePrimitiveArgument( L"char", L"char", isConst, isPointer, isLValRef, isRValRef );
+  case CXType_UChar: return ParsePrimitiveArgument( L"byte", L"uint8_t", isConst, isPointer, isLValRef, isRValRef );
+  case CXType_UShort: return ParsePrimitiveArgument( L"ushort", L"uint16_t", isConst, isPointer, isLValRef, isRValRef );
+  case CXType_UInt: return ParsePrimitiveArgument( L"uint", L"uint32_t", isConst, isPointer, isLValRef, isRValRef );
+  case CXType_ULong: return ParsePrimitiveArgument( L"uint", L"uint32_t", isConst, isPointer, isLValRef, isRValRef );
+  case CXType_ULongLong: return ParsePrimitiveArgument( L"ulong", L"uint64_t", isConst, isPointer, isLValRef, isRValRef );
+  case CXType_SChar: return ParsePrimitiveArgument( L"sbyte", L"int8_t", isConst, isPointer, isLValRef, isRValRef );
+  case CXType_Short: return ParsePrimitiveArgument( L"short", L"int16_t", isConst, isPointer, isLValRef, isRValRef );
+  case CXType_Int: return ParsePrimitiveArgument( L"int", L"int32_t", isConst, isPointer, isLValRef, isRValRef );
+  case CXType_Long: return ParsePrimitiveArgument( L"int", L"int32_t", isConst, isPointer, isLValRef, isRValRef );
+  case CXType_LongLong: return ParsePrimitiveArgument( L"long", L"int64_t", isConst, isPointer, isLValRef, isRValRef );
+  case CXType_Float: return ParsePrimitiveArgument( L"float", L"float", isConst, isPointer, isLValRef, isRValRef );
+  case CXType_Double: return ParsePrimitiveArgument( L"double", L"double", isConst, isPointer, isLValRef, isRValRef );
+  case CXType_Pointer: return ParseArgument( clang_getPointeeType( type ), isConst || clang_isConstQualifiedType( clang_getPointeeType( type ) ), true, isLValRef, isRValRef );
+  case CXType_LValueReference: return ParseArgument( clang_getNonReferenceType( type ), isConst, isPointer, true, isRValRef );
+  case CXType_RValueReference: return ParseArgument( clang_getNonReferenceType( type ), isConst, isPointer, isLValRef, true );
+  case CXType_Typedef: return ParseArgument( clang_getCanonicalType( type ), isConst, isPointer, isLValRef, isRValRef );
+  case CXType_WChar:
   {
-    ClassDesc::MethodDesc::ArgumentDesc arg;
-    arg.type.kind   = GetTypeKind( clang_getPointeeType( type ) );
-    arg.type.name   = GetFullName( clang_getPointeeType( type ) );
-    arg.isConst     = isConst;
-    arg.isPointer   = true;
-    arg.isReference = false;
-    TranslateKnownStructureNames( arg.type );
-    return arg;
-  }
-  case CXType_LValueReference:
-  {
-    ClassDesc::MethodDesc::ArgumentDesc arg;
-    arg.type.kind   = GetTypeKind( clang_getNonReferenceType( type ) );
-    arg.type.name   = GetFullName( clang_getNonReferenceType( type ) );
-    arg.isConst     = isConst;
-    arg.isPointer   = false;
-    arg.isReference = true;
-    TranslateKnownStructureNames( arg.type );
+    if ( !isPointer )
+    {
+      std::wcerr << L"wchar_t should be a pointer for " << ToString( type ) << " !" << std::endl;
+      break;
+    }
+
+    ArgumentDesc arg;
+    arg.type.kind    = TypeDesc::Kind::String;
+    arg.type.csName  = L"string";
+    arg.type.cppName = L"wchar_t";
+    arg.isConst      = isConst;
+    arg.isPointer    = isPointer;
+    arg.isLValRef    = isLValRef;
+    arg.isRValRef    = isRValRef;
     return arg;
   }
   case CXType_Elaborated:
   {
-    ClassDesc::MethodDesc::ArgumentDesc arg;
-    arg.type.kind   = GetTypeKind( clang_Type_getNamedType( type ) );
-    arg.type.name   = GetFullName( clang_Type_getNamedType( type ) );
-    arg.isConst     = isConst;
-    arg.isPointer   = false;
-    arg.isReference = false;
+    ArgumentDesc arg;
+    arg.type.kind    = GetTypeKind( clang_Type_getNamedType( type ) );
+    arg.type.csName  = GetFullName( clang_Type_getNamedType( type ), Language::CS );
+    arg.type.cppName = GetFullName( clang_Type_getNamedType( type ), Language::CPP );
+    arg.isConst      = isConst;
+    arg.isPointer    = isPointer;
+    arg.isLValRef    = isLValRef;
+    arg.isRValRef    = isRValRef;
     TranslateKnownStructureNames( arg.type );
     return arg;
   }
-  case CXType_Typedef:
-    return ParseArgument( clang_getCanonicalType( type ), isConst);
+  default:
+    std::wcout << L"ParseArgument default: " << ToString( type ) << std::endl;
+    break;
   }
 
-  ClassDesc::MethodDesc::ArgumentDesc arg;
-  arg.type.kind   = TypeDesc::Kind::Unknown;
-  arg.type.name   = L"unknown";
-  arg.isConst     = false;
-  arg.isPointer   = false;
-  arg.isReference = false;
+  ArgumentDesc arg;
+  arg.type.kind    = TypeDesc::Kind::Unknown;
+  arg.type.csName  = L"unknown";
+  arg.type.cppName = L"unknown";
+  arg.isConst      = false;
+  arg.isPointer    = false;
+  arg.isLValRef    = false;
+  arg.isRValRef    = false;
   return arg;
 }
 
@@ -587,7 +648,7 @@ void ParseStruct( CXCursor cursor )
   if ( nameSpace.empty() )
     return;
 
-  auto name = GetFullName( cursor );
+  auto name = GetFullName( cursor, Language::CPP );
   auto key = name;
 
   auto iter = structs.find( key );
@@ -620,8 +681,8 @@ void ParseStruct( CXCursor cursor )
         {
           auto name = ToString( cursor );
           auto type = clang_getCursorType( cursor );
-          auto asArg = ParseArgument( type, false );
-          if ( asArg.isPointer || asArg.isReference )
+          auto asArg = ParseArgument( type, false, false, false, false );
+          if ( asArg.isPointer || asArg.isLValRef || asArg.isRValRef )
           {
             std::wcerr << L"The '" << name << L"' field of the struct '" << desc.name << L"' is a pointer or reference. These are not supported." << std::endl;
             desc.isScripted = false;
@@ -647,11 +708,14 @@ void ParseStruct( CXCursor cursor )
     structs.insert( { key, strukt } );
 }
 
-ClassDesc::MethodDesc ParseMethod( CXCursor cursor )
+MethodDesc ParseMethod( CXCursor cursor )
 {
-  ClassDesc::MethodDesc desc;
+  MethodDesc desc;
 
   desc.name = ToString( cursor );
+
+  if ( desc.name == L"SetCallback" )
+    std::cout << "SetCallback";
 
   bool isCtor = clang_getCursorKind( cursor ) == CXCursor_Constructor;
 
@@ -663,7 +727,7 @@ ClassDesc::MethodDesc ParseMethod( CXCursor cursor )
   {
     auto retType = clang_getCursorResultType( cursor );
     auto retIsConst = clang_isConstQualifiedType( clang_getNonReferenceType( retType ) );
-    desc.returnValue = ParseArgument( retType, retIsConst );
+    desc.returnValue = ParseArgument( retType, retIsConst, false, false, false );
   }
 
   int numArgs = clang_Cursor_getNumArguments( cursor );
@@ -672,8 +736,32 @@ ClassDesc::MethodDesc ParseMethod( CXCursor cursor )
     auto argCursor = clang_Cursor_getArgument( cursor, arg );
     auto argType = clang_getCursorType( argCursor );
     auto argIsConst = clang_isConstQualifiedType( clang_getNonReferenceType( argType ) );
-    desc.arguments.emplace_back( ParseArgument( argType, argIsConst ) );
-    desc.arguments.back().name = ToString( argCursor );
+    desc.arguments.emplace_back( ParseArgument( argType, argIsConst, false, false, false ) );
+    auto& methodArg = desc.arguments.back();
+    methodArg.name = ToString( argCursor );
+    if ( methodArg.type.kind == TypeDesc::Kind::Delegate )
+    {
+      if ( !methodArg.isRValRef )
+      {
+        methodArg.name = L"DelegatesNeedToBeRValueReferences";
+        continue;
+      }
+
+      methodArg.type.csName.clear();
+      methodArg.type.cppName.clear();
+
+      auto nonRefType = clang_getNonReferenceType( argType );
+      for ( auto c = clang_getTypeDeclaration( nonRefType ); c.kind != CXCursor_TranslationUnit; c = clang_getCursorSemanticParent( c ) )
+      {
+        methodArg.type.csName.insert( 0, L"." + ToString( c ) );
+        methodArg.type.cppName.insert( 0, L"::" + ToString( c ) );
+      }
+
+      while ( methodArg.type.cppName[ 0 ] == L':' )
+        methodArg.type.cppName.erase( methodArg.type.cppName.begin() );
+      if ( methodArg.type.csName[ 0 ] == L'.' )
+        methodArg.type.csName.erase( methodArg.type.csName.begin() );
+    }
   }
 
   return desc;
@@ -684,7 +772,7 @@ void ParseEnum( CXCursor cursor )
   if ( IsInIgnoredNamespace() )
     return;
 
-  auto name = GetFullName( cursor );
+  auto name = GetFullName( cursor, Language::CPP );
 
   if ( name.find( L' ' ) != name.npos )
     return;
@@ -697,14 +785,15 @@ void ParseEnum( CXCursor cursor )
   if ( iter != enums.end() )
     return;
 
-  auto& inum = enums[ key ];
-
   auto enumType = clang_getEnumDeclIntegerType( cursor );
+  auto type     = ParseArgument( enumType.kind == CXTypeKind::CXType_Elaborated ? clang_Type_getNamedType( enumType ) : enumType, false, false, false, false ).type;
 
-  inum.type = ParseArgument( enumType.kind == CXTypeKind::CXType_Elaborated ? clang_Type_getNamedType( enumType ) : enumType, false ).type.name;
-  inum.name = name;
+  auto& inum = enums[ key ];
+  inum.csType    = type.csName;
+  inum.cppType   = type.cppName;
+  inum.name      = name;
   inum.nameSpace = nameSpace;
-  inum.header = ParseHeader( cursor );
+  inum.header    = ParseHeader( cursor );
 
   clang_visitChildren( cursor, []( CXCursor cursor, CXCursor parent, CXClientData client_data )
     {
@@ -730,12 +819,8 @@ void ParseClass( CXCursor cursor )
 
   std::wstring nameSpace = GetStackNamespace();
 
-  auto name = GetFullName( cursor );
+  auto name = GetFullName( cursor, Language::CPP );
   auto key = name;
-
-  auto iter = classes.find( key );
-  if ( iter != classes.end() )
-    return;
 
   auto& klass = classes[ key ];
 
@@ -774,7 +859,7 @@ void ParseClass( CXCursor cursor )
       ctx.klass->isFinal = true;
       break;
     case CXCursor_CXXBaseSpecifier:
-      ctx.klass->baseClasses.emplace_back( GetFullName( clang_getTypeDeclaration( clang_getCursorType( cursor ) ) ) );
+      ctx.klass->baseClasses.emplace_back( GetFullName( clang_getTypeDeclaration( clang_getCursorType( cursor ) ), Language::CPP ) );
       break;
     case CXCursor_StructDecl:
       if ( ToString( cursor ) == L"__ManagedExport__" )
@@ -795,6 +880,82 @@ void ParseClass( CXCursor cursor )
 
     return CXChildVisit_Continue;
   }, &ctx );
+}
+
+void ParseDelegate( CXCursor cursor )
+{
+  if ( stack.empty() )
+    return;
+
+  auto type = clang_getCursorType( cursor );
+  if ( type.kind != CXType_Typedef )
+    return;
+
+  auto realType = clang_getCanonicalType( type );
+  if ( realType.kind != CXType_Record )
+    return;
+
+  struct Context
+  {
+    bool isValid = true;
+    DelegateDesc desc;
+  } context;
+
+  clang_visitChildren( cursor, []( CXCursor cursor, CXCursor parent, CXClientData client_data )
+  {
+    auto& context = *reinterpret_cast< Context* >( client_data );
+
+    switch ( cursor.kind )
+    {
+    case CXCursor_NamespaceRef:
+      if ( ToString( cursor ) != L"std" )
+        context.isValid = false;
+      break;
+    case CXCursor_TemplateRef:
+      if ( ToString( cursor ) != L"function" )
+        context.isValid = false;
+      break;
+    case CXCursor_ParmDecl:
+    {
+      auto argType = clang_getCursorType( cursor );
+      auto argIsConst = clang_isConstQualifiedType( clang_getNonReferenceType( argType ) );
+      context.desc.arguments.emplace_back( ParseArgument( argType, argIsConst, false, false, false ) );
+      context.desc.arguments.back().name = ToString( cursor );
+      break;
+    }
+    default:
+      context.isValid = false;
+    }
+
+    return context.isValid ? CXChildVisit_Continue : CXChildVisit_Break;
+  }, &context );
+
+  if ( !context.isValid )
+    return;
+
+  context.desc.nameSpace = GetStackNamespace();
+  context.desc.name = GetFullName( cursor, Language::CPP );
+
+  int numTemplateArguments = clang_Type_getNumTemplateArguments( realType );
+  if ( numTemplateArguments != 1 )
+    return;
+
+  auto functionType = clang_Type_getTemplateArgumentAsType( realType, 0 );
+  if ( functionType.kind != CXType_FunctionProto )
+    return;
+
+  auto functionCursor = clang_getTypeDeclaration( functionType );
+  auto returnType = clang_getResultType( functionType );
+  auto retIsConst = clang_isConstQualifiedType( clang_getNonReferenceType( returnType ) );
+  context.desc.returnValue = ParseArgument( returnType, retIsConst, false, false, false );
+
+  auto key = context.desc.name;
+
+  auto iter = delegates.find( key );
+  if ( iter != delegates.end() )
+    return;
+
+  delegates.insert( { key, context.desc } );
 }
 
 CXChildVisitResult visitTranslationUnit( CXCursor cursor, CXCursor parent, CXClientData client_data )
@@ -827,6 +988,9 @@ CXChildVisitResult visitTranslationUnit( CXCursor cursor, CXCursor parent, CXCli
     return CXChildVisit_Continue;
   case CXCursor_EnumDecl:
     ParseEnum( cursor );
+    break;
+  case CXCursor_TypeAliasDecl:
+    ParseDelegate( cursor );
     break;
   default:
     break;
@@ -873,29 +1037,20 @@ std::wstring ChangeNamespaceSeparator( const std::wstring ns, const wchar_t* c )
   return t;
 }
 
-std::wstring ExportCSTypeName( const std::wstring& name )
-{
-  auto csName = name;
-  if ( csName.size() > 1 && csName[ 0 ] == L':' && csName[ 1 ] == L':' )
-    csName = csName.substr( 2 );
-
-  return ChangeNamespaceSeparator( csName, L"." );
-}
-
-std::wstring ExportCSArgumentType( const ClassDesc::MethodDesc::ArgumentDesc& argDesc, bool forAttribute = false )
+std::wstring ExportCSArgumentType( const ArgumentDesc& argDesc )
 {
   std::wstring s;
 
-  if ( argDesc.type.kind != TypeDesc::Kind::Class && argDesc.type.kind != TypeDesc::Kind::String && !forAttribute )
+  if ( argDesc.type.kind != TypeDesc::Kind::Class && argDesc.type.kind != TypeDesc::Kind::String && argDesc.type.kind != TypeDesc::Kind::Delegate )
   {
-    if ( argDesc.isReference || argDesc.isPointer )
+    if ( argDesc.isLValRef || argDesc.isRValRef || argDesc.isPointer )
       s += L"ref ";
 
     if ( argDesc.isConst )
       s += L"readonly ";
   }
 
-  s += argDesc.type.csSpecificName.empty() ? ExportCSTypeName( argDesc.type.name ) : argDesc.type.csSpecificName;
+  s += argDesc.type.csName;
 
   if ( argDesc.isPointer )
     s += L"?";
@@ -903,12 +1058,12 @@ std::wstring ExportCSArgumentType( const ClassDesc::MethodDesc::ArgumentDesc& ar
   return s;
 }
 
-std::wstring ExportCSArgument( const ClassDesc::MethodDesc::ArgumentDesc& argDesc )
+std::wstring ExportCSArgument( const ArgumentDesc& argDesc )
 {
   return ExportCSArgumentType( argDesc ) + L" " + argDesc.name;
 }
 
-std::wstring ExportCPPArgumentType( const ClassDesc::MethodDesc::ArgumentDesc& argDesc, bool returnValue )
+std::wstring ExportCPPArgumentType( const ArgumentDesc& argDesc, bool returnValue )
 {
   std::wstring s;
 
@@ -916,9 +1071,13 @@ std::wstring ExportCPPArgumentType( const ClassDesc::MethodDesc::ArgumentDesc& a
   {
     s += L"MonoString*";
   }
+  else if ( argDesc.type.kind == TypeDesc::Kind::Delegate )
+  {
+    s += L"MonoObject*";
+  }
   else if ( argDesc.type.kind == TypeDesc::Kind::Class )
   {
-    if ( argDesc.isPointer || argDesc.isReference )
+    if ( argDesc.isPointer || argDesc.isLValRef || argDesc.isRValRef )
       s += L"MonoObject*";
     else
       s += L"ClassesShouldBePointersOrReferences";
@@ -931,10 +1090,12 @@ std::wstring ExportCPPArgumentType( const ClassDesc::MethodDesc::ArgumentDesc& a
     if ( argDesc.isConst )
       s += L"const ";
 
-    s += argDesc.type.name;
+    s += argDesc.type.cppName;
 
-    if ( argDesc.isReference )
+    if ( argDesc.isLValRef )
       s += L"&";
+    if ( argDesc.isRValRef )
+      s += L"&&";
     else if ( argDesc.isPointer )
       s += L"*";
 
@@ -945,7 +1106,7 @@ std::wstring ExportCPPArgumentType( const ClassDesc::MethodDesc::ArgumentDesc& a
   return s;
 }
 
-std::wstring ExportCPPArgument( const ClassDesc::MethodDesc::ArgumentDesc& argDesc )
+std::wstring ExportCPPArgument( const ArgumentDesc& argDesc )
 {
   return ExportCPPArgumentType( argDesc, false ) + L" " + argDesc.name;
 }
@@ -961,7 +1122,7 @@ std::wstring ExportClassQualifier( const ClassDesc& desc )
   return desc.isFinal ? L"sealed " : L"";
 }
 
-std::wstring ExportCSMethodArguments( const ClassDesc::MethodDesc& methodDesc )
+std::wstring ExportCSMethodArguments( const MethodDesc& methodDesc )
 {
   if ( methodDesc.arguments.empty() )
     return L"";
@@ -974,12 +1135,25 @@ std::wstring ExportCSMethodArguments( const ClassDesc::MethodDesc& methodDesc )
   return code;
 }
 
-std::wstring ExportArgCallPrefix( const ClassDesc::MethodDesc::ArgumentDesc& arg )
+std::wstring ExportCSDelegateArguments( const DelegateDesc& delegateDesc )
 {
-  return arg.type.kind == TypeDesc::Kind::Struct && ( arg.isPointer || arg.isReference ) ? L"in " : L"";
+  if ( delegateDesc.arguments.empty() )
+    return L"";
+
+  std::wstring code = L"";
+  for ( auto& argDesc : delegateDesc.arguments )
+    code += ExportCSArgument( argDesc ) + L", ";
+  code.pop_back();
+  code.pop_back();
+  return code;
 }
 
-std::wstring ExportCSMethodArgumentNames( const ClassDesc::MethodDesc& methodDesc )
+std::wstring ExportArgCallPrefix( const ArgumentDesc& arg )
+{
+  return arg.type.kind == TypeDesc::Kind::Struct && ( arg.isPointer || arg.isLValRef || arg.isRValRef ) ? L"in " : L"";
+}
+
+std::wstring ExportCSMethodArgumentNames( const MethodDesc& methodDesc )
 {
   if ( methodDesc.arguments.empty() )
     return L"";
@@ -1023,7 +1197,7 @@ std::wstring ExportStructureFields( const StructDesc& desc, const wchar_t* inden
 
   desc.isExported = true;
   for ( auto& field : desc.fields )
-    code += indentation + std::wstring() + L"public " + field.first.name + L" " + field.second + L";\n";
+    code += indentation + std::wstring() + L"public " + field.first.csName + L" " + field.second + L";\n";
 
   return code;
 }
@@ -1056,7 +1230,7 @@ std::wstring ExportLocalEnums( const ClassDesc& desc )
 
   for ( auto& inum : enums )
     if ( IsStartsWith( inum.first, desc.name ) )
-      code += FormatString( csLocalEnumTemplate, JustName( inum.second.name ), inum.second.type, ExportEnumValues( inum.second, L"      " ) );
+      code += FormatString( csLocalEnumTemplate, JustName( inum.second.name ), inum.second.csType, ExportEnumValues( inum.second, L"      " ) );
 
   return code;
 }
@@ -1099,6 +1273,7 @@ void WriteCSStructs( std::filesystem::path path )
   std::unordered_set< std::wstring > namespacesToWrite;
   std::unordered_multimap< std::wstring, StructDesc > structuresToWrite;
   std::unordered_multimap< std::wstring, EnumDesc > enumsToWrite;
+  std::unordered_multimap< std::wstring, DelegateDesc > delegatesToWrite;
 
   for ( auto& strukt : structs )
     if ( !strukt.second.isExported )
@@ -1114,6 +1289,13 @@ void WriteCSStructs( std::filesystem::path path )
       enumsToWrite.insert( { inum.second.nameSpace, inum.second } );
     }
 
+  for ( auto& del : delegates )
+    if ( !del.second.isExported )
+    {
+      namespacesToWrite.insert( del.second.nameSpace );
+      delegatesToWrite.insert( { del.second.nameSpace, del.second } );
+    }
+
   if ( namespacesToWrite.empty() )
     return;
 
@@ -1124,14 +1306,20 @@ void WriteCSStructs( std::filesystem::path path )
     code += L"namespace " + ChangeNamespaceSeparator( nameSpace, L"." ) + L"\n{\n";
 
     auto structRange = structuresToWrite.equal_range( nameSpace );
-    if ( structRange.first != structRange.second )
-      for ( auto iter = structRange.first; iter != structRange.second; ++iter )
-        code += FormatString( csStandaloneStructTemplate, JustName( iter->second.name ), ExportStructureFields( iter->second, L"    " ) );
+    for ( auto iter = structRange.first; iter != structRange.second; ++iter )
+      code += FormatString( csStandaloneStructTemplate, JustName( iter->second.name ), ExportStructureFields( iter->second, L"    " ) );
 
     auto enumRange = enumsToWrite.equal_range( nameSpace );
-    if ( enumRange.first != enumRange.second )
-      for ( auto iter = enumRange.first; iter != enumRange.second; ++iter )
-        code += FormatString( csStandaloneEnumTemplate, JustName( iter->second.name ), iter->second.type, ExportEnumValues( iter->second, L"    " ) );
+    for ( auto iter = enumRange.first; iter != enumRange.second; ++iter )
+      code += FormatString( csStandaloneEnumTemplate, JustName( iter->second.name ), iter->second.csType, ExportEnumValues( iter->second, L"    " ) );
+
+    auto delegateRange = delegatesToWrite.equal_range( nameSpace );
+    for ( auto iter = delegateRange.first; iter != delegateRange.second; ++iter )
+      code += FormatString( csDelegateTemplate
+                          , L"  "
+                          , ExportCSArgumentType( iter->second.returnValue )
+                          , JustName( iter->second.name )
+                          , ExportCSDelegateArguments( iter->second ) );
 
     code += L"}\n\n";
   }
@@ -1184,7 +1372,7 @@ std::wstring ExportClassIncludes( const wchar_t* scriptedBaseName )
   return code;
 }
 
-std::wstring ExportCPPMethodArguments( const ClassDesc::MethodDesc& methodDesc )
+std::wstring ExportCPPMethodArguments( const MethodDesc& methodDesc )
 {
   if ( methodDesc.arguments.empty() )
     return L"";
@@ -1197,7 +1385,7 @@ std::wstring ExportCPPMethodArguments( const ClassDesc::MethodDesc& methodDesc )
   return code;
 }
 
-std::wstring ExportCPPMethodArgumentNames( const ClassDesc::MethodDesc& methodDesc )
+std::wstring ExportCPPMethodArgumentNames( const MethodDesc& methodDesc )
 {
   if ( methodDesc.arguments.empty() )
     return L"";
@@ -1209,11 +1397,17 @@ std::wstring ExportCPPMethodArgumentNames( const ClassDesc::MethodDesc& methodDe
     {
       code += argDesc.name + L" ? mono_string_chars( " + argDesc.name + L" ) : nullptr";
     }
+    else if ( argDesc.type.kind == TypeDesc::Kind::Delegate )
+    {
+      code += L"std::move( " + argDesc.name + L"__wrapper )";
+    }
     else if ( argDesc.type.kind == TypeDesc::Kind::Class )
     {
-      if ( argDesc.isReference )
+      if ( argDesc.isLValRef )
         code += L"*";
-      code += L"reinterpret_cast< " + argDesc.type.name + L"* >( EasyMono::LoadNativePointer( " + argDesc.name + L" ) )";
+      else if ( argDesc.isRValRef )
+        code += L"*";
+      code += L"reinterpret_cast< " + argDesc.type.cppName + L"* >( EasyMono::LoadNativePointer( " + argDesc.name + L" ) )";
     }
     else
       code += argDesc.name;
@@ -1224,7 +1418,7 @@ std::wstring ExportCPPMethodArgumentNames( const ClassDesc::MethodDesc& methodDe
   return code;
 }
 
-std::wstring ExportNativeThisPrefix( const ClassDesc::MethodDesc& methodDesc )
+std::wstring ExportNativeThisPrefix( const MethodDesc& methodDesc )
 {
   if ( methodDesc.returnValue.type.kind == TypeDesc::Kind::String )
     return L"auto monoRetStr =";
@@ -1232,28 +1426,134 @@ std::wstring ExportNativeThisPrefix( const ClassDesc::MethodDesc& methodDesc )
     return L"return";
 }
 
-std::wstring ExportNativeThisPostfix( const ClassDesc::MethodDesc& methodDesc )
+std::wstring ExportNativeThisPostfix( const MethodDesc& methodDesc )
 {
   return methodDesc.returnValue.type.kind == TypeDesc::Kind::Class ? L"->GetOrCreateMonoObject()" : L"";
 }
 
-std::wstring ExportCPPReturnStringHandling( const ClassDesc::MethodDesc& methodDesc )
+std::wstring ExportCPPReturnStringHandling( const MethodDesc& methodDesc )
 {
   if ( methodDesc.returnValue.type.kind == TypeDesc::Kind::String )
   {
-    return L"\n      return monoRetStr ? mono_string_new_utf16( mono_get_root_domain(), monoRetStr, int( wcslen( monoRetStr ) ) ) : nullptr;";
+    return L"\n      return monoRetStr ? mono_string_new_utf16( mono_domain_get(), monoRetStr, int( wcslen( monoRetStr ) ) ) : nullptr;";
   }
   return L"";
 }
 
-std::wstring ExportReturnStructureHandling( const ClassDesc::MethodDesc& methodDesc )
+std::wstring ExportReturnStructureHandling( const MethodDesc& methodDesc )
 {
   if ( methodDesc.returnValue.type.kind == TypeDesc::Kind::Struct )
-    return L"IS< " + methodDesc.returnValue.type.name + L">::process";
+    return L"IS< " + methodDesc.returnValue.type.cppName + L">::process";
 
   return L"";
 }
 
+const DelegateDesc* FindDelegate( const std::wstring& cppName )
+{
+  auto delegateDesc = delegates.find( cppName );
+  return delegateDesc == delegates.end() ? nullptr : &delegateDesc->second;
+}
+
+std::wstring ExportDelegateWrapperArgumentValueList( const ArgumentDesc& desc )
+{
+  std::wstring code;
+
+  auto delegateDesc = FindDelegate( desc.type.cppName );
+  assert( delegateDesc );
+
+  if ( delegateDesc->arguments.empty() )
+    return code;
+
+  code += L"\n        const void* delegate_args[] =\n        {\n";
+  for ( auto& arg : delegateDesc->arguments )
+  {
+    if ( arg.type.kind == TypeDesc::Kind::String )
+      code += L"          " + arg.name + L" ? mono_string_from_utf16( (mono_unichar2*)" + arg.name + L" ) : nullptr,\n";
+    else if ( arg.type.kind == TypeDesc::Kind::Class && arg.isPointer )
+      code += L"          " + arg.name + L"->GetOrCreateMonoObject(),\n";
+    else if ( arg.type.kind == TypeDesc::Kind::Class )
+      code += L"          " + arg.name + L".GetOrCreateMonoObject(),\n";
+    else
+      code += L"          &" + arg.name + L",\n";
+  }
+  code += L"        };\n";
+  return code;
+}
+
+std::wstring ExportDelegateWrapperArgumentValuePass( const ArgumentDesc& desc )
+{
+  auto delegateDesc = FindDelegate( desc.type.cppName );
+  assert( delegateDesc );
+
+  return delegateDesc->arguments.empty() ? L"nullptr" : L"(void**)&delegate_args";
+}
+
+std::wstring ExportDelegateWrapperHoldReturnValue( const ArgumentDesc& desc )
+{
+  auto delegateDesc = FindDelegate( desc.type.cppName );
+  assert( delegateDesc );
+
+  return delegateDesc->returnValue.type.cppName == L"void" ? L"" : L"MonoObject* delegate_return = ";
+}
+
+std::wstring ExportDelegateWrapperPassReturnValue( const ArgumentDesc& desc )
+{
+  auto delegateDesc = FindDelegate( desc.type.cppName );
+  assert( delegateDesc );
+
+  auto& type = delegateDesc->returnValue.type;
+
+  if ( type.cppName == L"void" )
+    return L"";
+  else if ( type.kind == TypeDesc::Kind::Enum || type.kind == TypeDesc::Kind::Primitive || type.kind == TypeDesc::Kind::Struct )
+    return L"\n        return *(int32_t*)mono_object_unbox( delegate_return );";
+  else if ( type.kind == TypeDesc::Kind::String )
+    return L"\n        return mono_string_chars( (MonoString*)delegate_return );";
+  else
+    return L"\n        return delegate_return;";
+}
+
+std::wstring ExportDelegateWrapperArguments( const ArgumentDesc& desc )
+{
+  std::wstring code;
+
+  auto delegateDesc = FindDelegate( desc.type.cppName );
+  assert( delegateDesc );
+
+  for ( auto& arg : delegateDesc->arguments )
+  {
+    if ( arg.isConst )
+      code += L"const ";
+    code += arg.type.cppName;
+    if ( arg.isPointer )
+      code += L"*";
+    if ( arg.isLValRef )
+      code += L"&";
+    if ( arg.isRValRef )
+      code += L"&&";
+
+    code += L" " + arg.name + L", ";
+  }
+  if ( !code.empty() )
+    code.resize( code.size() - 2 );
+  return code;
+}
+
+std::wstring ExportDelegateWrappers( const MethodDesc& desc )
+{
+  std::wstring code;
+  for ( auto& arg : desc.arguments )
+    if ( arg.type.kind == TypeDesc::Kind::Delegate )
+      code += FormatString( cppDelegateWrapperTemplate
+                          , arg.name
+                          , arg.name
+                          , ExportDelegateWrapperArguments( arg )
+                          , ExportDelegateWrapperArgumentValueList( arg )
+                          , ExportDelegateWrapperHoldReturnValue( arg )
+                          , ExportDelegateWrapperArgumentValuePass( arg )
+                          , ExportDelegateWrapperPassReturnValue( arg ) );
+  return code;
+}
 
 std::wstring ExportClassBindings( const ClassDesc& desc )
 {
@@ -1285,6 +1585,7 @@ std::wstring ExportClassBindings( const ClassDesc& desc )
                         , methodDesc.name
                         , methodDesc.arguments.empty() ? L"" : L", "
                         , ExportCPPMethodArguments( methodDesc )
+                        , ExportDelegateWrappers( methodDesc )
                         , desc.name
                         , ExportNativeThisPrefix( methodDesc )
                         , ExportReturnStructureHandling( methodDesc )
@@ -1307,7 +1608,7 @@ std::wstring ExportClassWrapperName( const ClassDesc& desc )
   return ChangeNamespaceSeparator( desc.nameSpace + L"::" + desc.name, L"__" );
 }
 
-std::wstring ExportClassMethodRegistration( const ClassDesc& desc, const ClassDesc::MethodDesc& methodDesc )
+std::wstring ExportClassMethodRegistration( const ClassDesc& desc, const MethodDesc& methodDesc )
 {
   bool isCtor = methodDesc.returnValue.type.kind == TypeDesc::Kind::None;
   return FormatString( cppMethodRegistrationTemplate

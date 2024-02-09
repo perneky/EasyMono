@@ -36,6 +36,12 @@ namespace Test
     extern static UInt64 Ctor( int a, string? s, ref readonly System.Numerics.Vector3 v );
 
     [MethodImpl(MethodImplOptions.InternalCall)]
+    public extern void SetCallback( Test.GlobalDelegate callback );
+
+    [MethodImpl(MethodImplOptions.InternalCall)]
+    public extern string? CallCallback( int a, string? s, ref readonly Test.Struct1.LargestStruct l, Test.ScriptTest c, Test.Enum.Enum2 e );
+
+    [MethodImpl(MethodImplOptions.InternalCall)]
     public extern void SetValueByLocalEnum( Test.ScriptTest.LocalEnum e );
 
     [MethodImpl(MethodImplOptions.InternalCall)]

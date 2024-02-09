@@ -187,7 +187,7 @@ string ToCppArg( ParameterInfo info )
   if ( info.ParameterType.IsValueType )
     return "&" + info.Name;
   else if ( info.ParameterType == typeof( string ) )
-    return info.Name + " ? mono_string_new_utf16( mono_get_root_domain(), " + info.Name + ", int( wcslen( " + info.Name + " ) ) ) : nullptr";
+    return info.Name + " ? mono_string_from_utf16( (mono_unichar2*)" + info.Name + " ) : nullptr";
   else if ( IsScriptedClass( info.ParameterType ) )
     return info.Name + "->GetOrCreateMonoObject()";
   else
@@ -243,6 +243,8 @@ string ExportReturnReturnValue( ParameterInfo parameter )
 
   if ( parameter.ParameterType.IsValueType )
     return "\n\n    return *(int32_t*)mono_object_unbox( retVal );";
+  else if ( parameter.ParameterType == typeof( string ) )
+    return "\n\n    return mono_string_chars( (MonoString*)retVal );";
   else
     return "\n\n    return retVal;";
 }

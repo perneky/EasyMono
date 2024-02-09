@@ -49,6 +49,13 @@ For every struct which has `EasyMono::ScriptedStruct` as its base, a counterpart
 # Enumerations
 The tools also look for and parse enum types and recreate them in the managed world. Both enums in namespaces, and enums embedded in classes are supported.
 
+# Strings
+Strings are always a special type. On the interop interfaces, the tools recognize wide strings (wchar_t). The choice is made as the mono strings are utf16 strings so strings can be passed on the border without conversion.
+
+# Delegates
+When the C++ header parser encounters a definition of an `std::function` like so `using Foo = std::function< int(float floatArg, const wchar_t* stringArg)>` it generates a delegate in the C# side, like so: `public delegate int Foo( float floatArg, string? stringArg )`.
+On every exported C++ method which takes this type as an Rvalue reference, a managed delegate can be passed. The tool will generate a C++ wrapper function which takes these arguments, and calls the managed delegate object with it.
+
 # Tools result
 With these two tools, EasyMono creates a seamless interop between the two worlds. All you need to do is to run them as your scripted C++ classes or your managed exported methods change, and the matching interop mechanism will be generated for you. Always up to date.
 
@@ -101,9 +108,6 @@ For this purpose, the test application has the `ScriptedClassBase` class, implem
 
 Also as a point of interest, the `ScriptedClassBase` also implements a `CreateUnique` function to show how to integrate this concept with unique pointers.
 
-# Strings
-Strings are always a special type. On the interop interfaces, the tools recognize wide strings (wchar_t). The choice is made as the mono strings are utf16 strings so strings can be passed on the border without conversion.
-
 # Project files
 Wanted to do this with CMake, I even did. But due to a bug in CMake, if a generated solution has both C++ and C# projects, the C++ project can't be built, due to not having nuget dependencies. Maybe this will be fixed one day, but for now, it is what it is. But the project is really small enough that if you want to use your favorite build system, making this work is really just a matter of minutes.
 
@@ -117,7 +121,9 @@ The roadmap (to be expanded):
  - [x] Configurable structure types
  - [x] Automatic handling of structures not in the dictionary
  - [x] Handling enums in the tools
- - [ ] Handling callbacks in the tools
+ - [x] Handling callbacks in the tools
+ - [ ] Handling static, virtual and overridden methods
+ - [ ] Handling strings in structs
  - [ ] Handling lists
  - [ ] Handling dictionaries
  - [ ] Handling lists and dictionaries in structs

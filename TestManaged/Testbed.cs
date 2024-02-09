@@ -107,6 +107,22 @@ namespace MonoTest
       tester.SetValueByGlobalEnum( Test.Enum.Enum2.F );
       Console.WriteLine( "Value by global enum: " + tester.GetValue() );
 
+      /////////////////////////////////////////////////
+      Console.WriteLine( "" );
+      Console.WriteLine( "Testing delegates" );
+      Console.WriteLine( "=================" );
+      tester.SetCallback( ( int a, string? b, ref readonly Test.Struct1.LargestStruct c, Test.ScriptTest d, Test.Enum.Enum2 e ) =>
+      {
+        // For some reason, string interpolation throws TypeLoadException with:
+        // Could not resolve type with token 01000013 from typeref (expected class 'System.Runtime.CompilerServices.DefaultInterpolatedStringHandler' in assembly 'System.Runtime, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a')
+        //
+        // This is to be figured out later. May be a mono thing. Missing interpolators in the runtime?
+        Console.WriteLine( $"Callback called with a: " + a + ", b: " + b + ", c.a: " + c.a + ", c.b: " + c.b + ", c.c: " + c.c + ", c.d: " + c.d + ", d: " + d.GetValue() + ", e: " + e.ToString() );
+        return d.GetString();
+      } );
+      var callbackStruct = new Test.Struct1.LargestStruct { a = 1, b = 3, c = 5, d = 7 };
+      Console.WriteLine( "Callback returned with " + tester.CallCallback( 32, "Callbacks are awesome!", ref callbackStruct, nativeTester, Test.Enum.Enum2.E ) );
+
       return tmp;
     }
   }

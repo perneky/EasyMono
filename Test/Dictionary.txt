@@ -1,4 +1,4 @@
-::DirectX::XMFLOAT2   System.Numerics.Vector2
-::DirectX::XMFLOAT3   System.Numerics.Vector3
-::DirectX::XMFLOAT4   System.Numerics.Vector4
-::DirectX::XMFLOAT4X4 System.Numerics.Matrix4x4
+DirectX::XMFLOAT2   System.Numerics.Vector2
+DirectX::XMFLOAT3   System.Numerics.Vector3
+DirectX::XMFLOAT4   System.Numerics.Vector4
+DirectX::XMFLOAT4X4 System.Numerics.Matrix4x4

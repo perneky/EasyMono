@@ -35,7 +35,7 @@ namespace EasyMono
     friend void Detail::NRelease( uint64_t nativePtr );
 
   public:
-    MonoObject* GetOrCreateMonoObject();
+    MonoObject* GetOrCreateMonoObject() const;
 
   protected:
     ScriptedClass( MonoClass* monoClass );
@@ -48,7 +48,8 @@ namespace EasyMono
     void SetMonoObject( MonoObject* monoObject );
 
     MonoClass* monoClass = nullptr;
-    uint32_t monoObjectHandle = 0;
+    
+    mutable uint32_t monoObjectHandle = 0;
   };
 }
 
@@ -71,7 +72,7 @@ namespace EasyMono
 
 #ifndef EASYMONO_PRINT_EXCEPTION
 # include <iostream>
-# define EASYMONO_PRINT_EXCEPTION( e ) ( std::wcerr << e )
+# define EASYMONO_PRINT_EXCEPTION( e ) ( std::wcerr << e << std::endl )
 #endif
 
 namespace EasyMono
@@ -89,7 +90,7 @@ namespace EasyMono
       mono_gchandle_free( monoObjectHandle );
   }
 
-  MonoObject* ScriptedClass::GetOrCreateMonoObject()
+  MonoObject* ScriptedClass::GetOrCreateMonoObject() const
   {
     auto monoObject = monoObjectHandle ? mono_gchandle_get_target( monoObjectHandle ) : nullptr;
     if ( monoObject )
@@ -175,13 +176,19 @@ namespace EasyMono
       if ( !e )
         return;
 
-      auto monoClass = mono_object_get_class( e ); EASYMONO_ASSERT( monoClass );
-      auto monoDesc = mono_method_desc_new( ":ToString()", false ); EASYMONO_ASSERT( monoDesc );
-      auto monoFunc = mono_method_desc_search_in_class( monoDesc, monoClass ); EASYMONO_ASSERT( monoFunc );
-      mono_method_desc_free( monoDesc );
+      EASYMONO_PRINT_EXCEPTION( mono_class_get_name( mono_object_get_class( e ) ) );
 
-      auto monoString = reinterpret_cast<MonoString*>( mono_runtime_invoke( monoFunc, nullptr, nullptr, nullptr ) );
+      auto monoExceptiopnClass = mono_class_from_name( mono_get_corlib(), "System", "Exception" );
+      auto monoMessageMethod = mono_class_get_method_from_name( monoExceptiopnClass, "get_Message", 0 );
+      auto monoStackMethod = mono_class_get_method_from_name( monoExceptiopnClass, "get_StackTrace", 0 );
+
+      auto monoString = reinterpret_cast<MonoString*>( mono_runtime_invoke( monoMessageMethod, e, nullptr, nullptr ) );
       EASYMONO_PRINT_EXCEPTION( mono_string_chars( monoString ) );
+      monoString = reinterpret_cast<MonoString*>( mono_runtime_invoke( monoStackMethod, e, nullptr, nullptr ) );
+      if ( monoString )
+        EASYMONO_PRINT_EXCEPTION( mono_string_chars( monoString ) );
+      else
+        EASYMONO_PRINT_EXCEPTION( L"No stack available." );
     }
 
     void PrintException( MonoException* e )

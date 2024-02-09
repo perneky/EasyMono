@@ -4,12 +4,17 @@
 #include "TestStruct.h"
 
 #include <string>
+#include <functional>
 #include <DirectXMath.h>
 
 using namespace DirectX;
 
 namespace Test
 {
+  class ScriptTest;
+
+  using GlobalDelegate = std::function< const wchar_t*( int a, const wchar_t* s, const Struct1::LargestStruct& l, const ScriptTest& c, Test::Enum::Enum2 e ) >;
+
   struct GlobalStruct : EasyMono::ScriptedStruct
   {
     int thisValue;
@@ -44,6 +49,18 @@ namespace Test
 
     ~ScriptTest()
     {
+    }
+
+    void SetCallback( GlobalDelegate&& callback )
+    {
+      globalDelegate = callback;
+    }
+
+    const wchar_t* CallCallback( int a, const wchar_t* s, const Struct1::LargestStruct& l, const ScriptTest& c, Test::Enum::Enum2 e )
+    {
+      if ( globalDelegate )
+        return globalDelegate( a, s, l, c, e );
+      return nullptr;
     }
 
     void SetValueByLocalEnum( LocalEnum e )
@@ -213,5 +230,6 @@ namespace Test
     int value = 0;
     std::wstring str;
     XMFLOAT3 vec;
+    GlobalDelegate globalDelegate;
   };
 }
