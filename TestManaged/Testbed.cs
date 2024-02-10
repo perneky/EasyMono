@@ -142,6 +142,15 @@ namespace MonoTest
       tester.PrintArrayOfObjects( new Test.ScriptTest[] { tester, testerFromStatic, null } );
       tester.PrintArrayOfStructs( new Test.Struct1.LargestStruct[] { new Test.Struct1.LargestStruct { a = 1, b = 3, c = 5, d = 7 }, new Test.Struct1.LargestStruct { a = 11, b = 13, c = 15, d = 17 } } );
 
+      /////////////////////////////////////////////////
+      Console.WriteLine( "" );
+      Console.WriteLine( "Testing lists" );
+      Console.WriteLine( "========================" );
+      tester.PrintListOfInt( new List<int> { 12, 22, 32, 42, 52 } );
+      tester.PrintListOfString( new List<string> { "EasyMono", "for", "the", "win!" } );
+      tester.PrintListOfObjects( new List<Test.ScriptTest> { tester, testerFromStatic, null } );
+      tester.PrintListOfStructs( new List<Test.Struct1.LargestStruct> { new Test.Struct1.LargestStruct { a = 1, b = 3, c = 5, d = 7 }, new Test.Struct1.LargestStruct { a = 11, b = 13, c = 15, d = 17 } } );
+
       return tmp;
     }
   }

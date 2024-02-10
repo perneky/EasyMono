@@ -60,6 +60,9 @@ On every exported C++ method which takes this type as an Rvalue reference, a man
 An exported native method can use the `EasyMono::Array` type as an argument. In the managed wrapper, for `EasyMono::Array<int>` for example, it is going to generate `int[]`. The `EasyMono::Array` has facilities to iterate over the Mono array, converting the type to C++ is necessary.
 Scripted classes should always be used by pointer, and for strings, `const wchar_t*` should be used as expected.
 
+# Lists
+An exported native method can use the `EasyMono::List` type as an argument. In the managed wrapper, for `EasyMono::List<int>` for example, it is going to generate `System.Collections.Generic.List<int>`. The `EasyMono::List` has facilities to iterate over the Mono list, converting the type to C++ is necessary.
+
 # Method specifiers
 On C++ methods, the `static`, `virtual` and `override` specifiers are parsed accordingly. You have to make sure to use `override` in native code properly, or the generated C# code is going to generate warnings about hiding the previous virtual method.
 
@@ -131,9 +134,9 @@ The roadmap (to be expanded):
  - [x] Handling callbacks in the tools
  - [x] Handling static, virtual and overridden methods
  - [x] Handling arrays
- - [ ] Handling enumerables
+ - [x] Handling lists
  - [ ] Handling dictionaries
  - [ ] Handling strings in structs
  - [ ] Handling arrays in structs
- - [ ] Handling enumerables in structs
+ - [ ] Handling lists in structs
  - [ ] Handling dictionaries in structs

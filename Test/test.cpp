@@ -27,6 +27,8 @@ int main()
 
   MonoTest::Testbed::TestInterop( testObject.get(), L"This", XMFLOAT3( 10, 20, 30 ) );
 
+  EasyMono::List< int > foo( nullptr );
+
   testObject.release();
 
   std::cout << std::endl << "Collecting garbage..." << std::endl;

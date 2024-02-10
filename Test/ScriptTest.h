@@ -243,6 +243,38 @@ namespace Test
       std::wcout << std::endl;
     }
 
+    void PrintListOfInt( EasyMono::List< int > list )
+    {
+      std::wcout << L"PrintListOfInt called with:";
+      for ( auto value : list )
+        std::wcout << L" " << std::to_wstring( value );
+      std::wcout << std::endl;
+    }
+
+    void PrintListOfString( EasyMono::List< const wchar_t* > list )
+    {
+      std::wcout << L"PrintListOfString called with:";
+      for ( auto value : list )
+        std::wcout << L" " << value;
+      std::wcout << std::endl;
+    }
+
+    void PrintListOfObjects( EasyMono::List< ScriptTest* > list )
+    {
+      std::wcout << L"PrintListOfObjects called with:";
+      for ( auto value : list )
+        std::wcout << L" " << ( value ? value->GetString() : L"null" );
+      std::wcout << std::endl;
+    }
+
+    void PrintListOfStructs( EasyMono::List< Struct1::LargestStruct > list )
+    {
+      std::wcout << L"PrintListOfStructs called with:";
+      for ( auto value : list )
+        std::wcout << L" " << std::to_wstring( value.a ) << ", " << std::to_wstring( value.b ) << ", " << std::to_wstring( value.c ) << ", " << std::to_wstring( value.d ) << " |";
+      std::wcout << std::endl;
+    }
+
     static ScriptTest* CreateInstance( int a, const wchar_t* s, const XMFLOAT3& v )
     {
       return new ScriptTest( a, s, v );

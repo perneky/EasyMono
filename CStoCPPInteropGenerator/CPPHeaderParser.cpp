@@ -490,16 +490,21 @@ ArgumentDesc ParseArgument( CXType type, bool isConst, bool isPointer, bool isLV
 
 std::wstring GetFullName( CXType type, Language lang )
 {
-  auto typeDecl = clang_getTypeDeclaration( clang_getCanonicalType( type ) );
-  auto fullName = GetFullName( typeDecl, lang );
-  if ( ( lang == Language::CS && fullName == L"EasyMono.Array" ) || ( lang == Language::CPP && fullName == L"EasyMono::Array" ) )
+  auto getTemplateArgument = []( CXCursor typeDecl )
   {
     int numTemplateArguments = clang_Cursor_getNumTemplateArguments( typeDecl );
     assert( numTemplateArguments == 2 );
 
     auto arrayType = clang_Cursor_getTemplateArgumentType( typeDecl, 0 );
     auto arrayTypeIsConst = clang_isConstQualifiedType( clang_getNonReferenceType( arrayType ) );
-    auto asArgument = ParseArgument( arrayType, arrayTypeIsConst, false, false, false );
+    return ParseArgument( arrayType, arrayTypeIsConst, false, false, false );
+  };
+
+  auto typeDecl = clang_getTypeDeclaration( clang_getCanonicalType( type ) );
+  auto fullName = GetFullName( typeDecl, lang );
+  if ( ( lang == Language::CS && fullName == L"EasyMono.Array" ) || ( lang == Language::CPP && fullName == L"EasyMono::Array" ) )
+  {
+    auto asArgument = getTemplateArgument( typeDecl );
 
     if ( lang == Language::CS )
       return asArgument.type.csName + L"[]";
@@ -515,6 +520,25 @@ std::wstring GetFullName( CXType type, Language lang )
     }
 
     return L"EasyMono::Array<" + asArgument.type.cppName + L">";
+  }
+  if ( ( lang == Language::CS && fullName == L"EasyMono.List" ) || ( lang == Language::CPP && fullName == L"EasyMono::List" ) )
+  {
+    auto asArgument = getTemplateArgument( typeDecl );
+
+    if ( lang == Language::CS )
+      return L"System.Collections.Generic.List<" + asArgument.type.csName + L">";
+
+    if ( asArgument.type.kind == TypeDesc::Kind::String )
+      return L"EasyMono::List<const wchar_t*>";
+
+    if ( asArgument.type.kind == TypeDesc::Kind::Class )
+    {
+      if ( !asArgument.isPointer )
+        return L"ListOfScriptedClassShouldBePointers";
+      return ( asArgument.isConst ? L"EasyMono::List<const " : L"EasyMono::List<" ) + asArgument.type.cppName + L"*>";
+    }
+
+    return L"EasyMono::List<" + asArgument.type.cppName + L">";
   }
   return fullName;
 }

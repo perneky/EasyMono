@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <type_traits>
 #include <mono/metadata/object.h>
+#include <mono/metadata/appdomain.h>
 
 #ifndef EASY_MONO_PARSER
   #define managed_export public
@@ -63,23 +64,6 @@ namespace EasyMono
     ScriptedClass* LoadNativePointer( MonoObject* monoObject );
   }
 
-  struct ArrayBase
-  {
-    ArrayBase( MonoArray* monoArray ) : monoArray( monoArray ) {}
-
-    size_t length() const
-    {
-      return monoArray ? mono_array_length( monoArray ) : 0;
-    }
-
-    void* elem( size_t index, size_t elemSize ) const
-    {
-      return monoArray ? mono_array_addr_with_size( monoArray, elemSize, index ) : nullptr;
-    }
-
-    MonoArray* monoArray;
-  };
-
   template< typename T >
   struct strip
   {
@@ -98,6 +82,22 @@ namespace EasyMono
     static constexpr bool value = std::is_base_of_v< ScriptedClass, typename strip< T >::type >;
   };
 
+  struct ArrayBase
+  {
+    ArrayBase( MonoArray* monoArray ) : monoArray( monoArray ) {}
+
+    size_t length() const
+    {
+      return monoArray ? mono_array_length( monoArray ) : 0;
+    }
+
+    void* elem( size_t index, size_t elemSize ) const
+    {
+      return monoArray ? mono_array_addr_with_size( monoArray, elemSize, index ) : nullptr;
+    }
+
+    MonoArray* monoArray;
+  };
 
   template< typename T, typename Enable = void >
   struct Array;
@@ -201,6 +201,156 @@ namespace EasyMono
 
     T at( size_t index ) { return reinterpret_cast<T>( EasyMono::Detail::LoadNativePointer( *(MonoObject**)elem( index, sizeof( MonoObject* ) ) ) ); }
     const T at( size_t index ) const { return reinterpret_cast<T>( EasyMono::Detail::LoadNativePointer( *(MonoObject**)elem( index, sizeof( MonoObject* ) ) ) ); }
+  };
+
+  struct ListBase
+  {
+    ListBase( MonoObject* monoObject ) : monoObject( monoObject ) {}
+
+    size_t length() const
+    {
+      if ( !monoObject )
+        return 0;
+
+      auto monoClass = mono_object_get_class( monoObject );
+      auto get_Count = mono_class_get_method_from_name( monoClass, "get_Count", 0 );
+
+      return *(size_t*)mono_object_unbox( mono_runtime_invoke( get_Count, monoObject, nullptr, nullptr ) );
+    }
+
+    MonoObject* elem( size_t index ) const
+    {
+      if ( !monoObject )
+        return nullptr;
+
+      auto monoClass = mono_object_get_class( monoObject );
+      auto get_Item = mono_class_get_method_from_name( monoClass, "get_Item", 1 );
+
+      void* args[] = { &index };
+      return monoObject ? mono_runtime_invoke( get_Item, monoObject, args, nullptr ) : nullptr;
+    }
+
+    MonoObject* monoObject;
+  };
+
+  template< typename T, typename Enable = void >
+  struct List;
+
+  template< typename T >
+  struct List< T, std::enable_if_t< std::is_pod_v< T > && !is_string< T >::value && !is_scripted< T >::value > > sealed : private ListBase
+  {
+    struct iterator_impl
+    {
+      mutable size_t index;
+      List& list;
+
+      iterator_impl( size_t index, List& list ) : index( index ), list( list ) {}
+
+      T operator * () const { return list[ index ]; }
+
+      bool operator == ( const iterator_impl& other ) const { return index == other.index; }
+      bool operator != ( const iterator_impl& other ) const { return index != other.index; }
+
+      iterator_impl& operator ++ () { ++index; return *this; }
+      iterator_impl& operator ++ ( int ) { ++index; return *this; }
+    };
+
+    using iterator = iterator_impl;
+    using const_iterator = const iterator_impl;
+
+    List( MonoObject* monoObject ) : ListBase( monoObject ) {}
+
+    iterator begin() { return iterator( 0, *this ); }
+    iterator end() { return iterator( length(), *this ); }
+    const_iterator begin() const { return iterator( 0, *this ); }
+    const_iterator end() const { return iterator( length(), *this ); }
+
+    size_t size() const { return length(); }
+    bool empty() const { return length() == 0; }
+
+    T& operator[] ( size_t index ) { EASYMONO_ASSERT( index < length() ); return at( index ); }
+    const T& operator[] ( size_t index ) const { EASYMONO_ASSERT( index < length() ); return at( index ); }
+
+    T& at( size_t index ) { return *static_cast<T*>( mono_object_unbox( elem( index ) ) ); }
+    const T& at( size_t index ) const { return *static_cast<T*>( mono_object_unbox( elem( index ) ) ); }
+  };
+
+  template< typename T >
+  struct List< T, std::enable_if_t< is_string< T >::value > > sealed : private ListBase
+  {
+    struct iterator_impl
+    {
+      mutable size_t index;
+      List& list;
+
+      iterator_impl( size_t index, List& list ) : index( index ), list( list ) {}
+
+      T operator * () const { return list[ index ]; }
+
+      bool operator == ( const iterator_impl& other ) const { return index == other.index; }
+      bool operator != ( const iterator_impl& other ) const { return index != other.index; }
+
+      iterator_impl& operator ++ () { ++index; return *this; }
+      iterator_impl& operator ++ ( int ) { ++index; return *this; }
+    };
+
+    using iterator = iterator_impl;
+    using const_iterator = const iterator_impl;
+
+    List( MonoObject* monoObject ) : ListBase( monoObject ) {}
+
+    iterator begin() { return iterator( 0, *this ); }
+    iterator end() { return iterator( length(), *this ); }
+    const_iterator begin() const { return iterator( 0, *this ); }
+    const_iterator end() const { return iterator( length(), *this ); }
+
+    size_t size() const { return length(); }
+    bool empty() const { return length() == 0; }
+
+    T operator[] ( size_t index ) { EASYMONO_ASSERT( index < length() ); return at( index ); }
+    const T operator[] ( size_t index ) const { EASYMONO_ASSERT( index < length() ); return at( index ); }
+
+    T at( size_t index ) { return mono_string_chars( (MonoString*)elem( index ) ); }
+    const T at( size_t index ) const { return mono_string_chars( (MonoString*)elem( index ) ); }
+  };
+
+  template< typename T >
+  struct List< T, std::enable_if_t< is_scripted< T >::value > > sealed : private ListBase
+  {
+    struct iterator_impl
+    {
+      mutable size_t index;
+      List& list;
+
+      iterator_impl( size_t index, List& list ) : index( index ), list( list ) {}
+
+      T operator * () const { return list[ index ]; }
+
+      bool operator == ( const iterator_impl& other ) const { return index == other.index; }
+      bool operator != ( const iterator_impl& other ) const { return index != other.index; }
+
+      iterator_impl& operator ++ () { ++index; return *this; }
+      iterator_impl& operator ++ ( int ) { ++index; return *this; }
+    };
+
+    using iterator = iterator_impl;
+    using const_iterator = const iterator_impl;
+
+    List( MonoObject* monoObject ) : ArrayBase( monoObject ) {}
+
+    iterator begin() { return iterator( 0, *this ); }
+    iterator end() { return iterator( length(), *this ); }
+    const_iterator begin() const { return iterator( 0, *this ); }
+    const_iterator end() const { return iterator( length(), *this ); }
+
+    size_t size() const { return length(); }
+    bool empty() const { return length() == 0; }
+
+    T operator[] ( size_t index ) { EASYMONO_ASSERT( index < length() ); return at( index ); }
+    const T operator[] ( size_t index ) const { EASYMONO_ASSERT( index < length() ); return at( index ); }
+
+    T at( size_t index ) { return reinterpret_cast<T>( EasyMono::Detail::LoadNativePointer( (MonoObject*)elem( index ) ) ); }
+    const T at( size_t index ) const { return reinterpret_cast<T>( EasyMono::Detail::LoadNativePointer( (MonoObject*)elem( index ) ) ); }
   };
 }
 
@@ -324,9 +474,9 @@ namespace EasyMono
 
       EASYMONO_PRINT_EXCEPTION( mono_class_get_name( mono_object_get_class( e ) ) );
 
-      auto monoExceptiopnClass = mono_class_from_name( mono_get_corlib(), "System", "Exception" );
-      auto monoMessageMethod = mono_class_get_method_from_name( monoExceptiopnClass, "get_Message", 0 );
-      auto monoStackMethod = mono_class_get_method_from_name( monoExceptiopnClass, "get_StackTrace", 0 );
+      auto monoExceptionClass = mono_class_from_name( mono_get_corlib(), "System", "Exception" );
+      auto monoMessageMethod = mono_class_get_method_from_name( monoExceptionClass, "get_Message", 0 );
+      auto monoStackMethod = mono_class_get_method_from_name( monoExceptionClass, "get_StackTrace", 0 );
 
       auto monoString = reinterpret_cast<MonoString*>( mono_runtime_invoke( monoMessageMethod, e, nullptr, nullptr ) );
       EASYMONO_PRINT_EXCEPTION( mono_string_chars( monoString ) );
