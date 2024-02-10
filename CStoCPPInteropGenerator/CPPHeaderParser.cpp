@@ -86,10 +86,10 @@ auto cppFileTemplate = LR"(
 @
 namespace EasyMono
 {
-  ScriptedClass* LoadNativePointer( MonoObject* monoObject );
-
   namespace Detail
   {
+    ScriptedClass* LoadNativePointer( MonoObject* monoObject );
+
     MonoImage* GetMainMonoImage();
 
     struct GCHolder
@@ -208,7 +208,7 @@ auto cppCtorTemplate = LR"(
 auto cppMethodTemplate = LR"(
     static @ __stdcall @( MonoObject* thiz@@ )
     {@
-      auto nativeThis = reinterpret_cast< @* >( EasyMono::LoadNativePointer( thiz ) );
+      auto nativeThis = reinterpret_cast< @* >( EasyMono::Detail::LoadNativePointer( thiz ) );
       @ @( nativeThis->@( @ )@ );@
     }
 )";
@@ -486,9 +486,37 @@ std::wstring GetFullName( CXCursor cursor, Language lang )
   return L"";
 }
 
+ArgumentDesc ParseArgument( CXType type, bool isConst, bool isPointer, bool isLValRef, bool isRValRef );
+
 std::wstring GetFullName( CXType type, Language lang )
 {
-  return GetFullName( clang_getTypeDeclaration( clang_getCanonicalType( type ) ), lang );
+  auto typeDecl = clang_getTypeDeclaration( clang_getCanonicalType( type ) );
+  auto fullName = GetFullName( typeDecl, lang );
+  if ( ( lang == Language::CS && fullName == L"EasyMono.Array" ) || ( lang == Language::CPP && fullName == L"EasyMono::Array" ) )
+  {
+    int numTemplateArguments = clang_Cursor_getNumTemplateArguments( typeDecl );
+    assert( numTemplateArguments == 2 );
+
+    auto arrayType = clang_Cursor_getTemplateArgumentType( typeDecl, 0 );
+    auto arrayTypeIsConst = clang_isConstQualifiedType( clang_getNonReferenceType( arrayType ) );
+    auto asArgument = ParseArgument( arrayType, arrayTypeIsConst, false, false, false );
+
+    if ( lang == Language::CS )
+      return asArgument.type.csName + L"[]";
+
+    if ( asArgument.type.kind == TypeDesc::Kind::String )
+      return L"EasyMono::Array<const wchar_t*>";
+
+    if ( asArgument.type.kind == TypeDesc::Kind::Class )
+    {
+      if ( !asArgument.isPointer )
+        return L"ArrayOfScriptedClassShouldBePointers";
+      return ( asArgument.isConst ? L"EasyMono::Array<const " : L"EasyMono::Array<" ) + asArgument.type.cppName + L"*>";
+    }
+
+    return L"EasyMono::Array<" + asArgument.type.cppName + L">";
+  }
+  return fullName;
 }
 
 bool Contains( const std::wstring& s, const wchar_t* sub )
@@ -584,6 +612,19 @@ ArgumentDesc ParseArgument( CXType type, bool isConst, bool isPointer, bool isLV
     arg.type.kind    = GetTypeKind( clang_Type_getNamedType( type ) );
     arg.type.csName  = GetFullName( clang_Type_getNamedType( type ), Language::CS );
     arg.type.cppName = GetFullName( clang_Type_getNamedType( type ), Language::CPP );
+    arg.isConst      = isConst;
+    arg.isPointer    = isPointer;
+    arg.isLValRef    = isLValRef;
+    arg.isRValRef    = isRValRef;
+    TranslateKnownStructureNames( arg.type );
+    return arg;
+  }
+  case CXType_Record:
+  {
+    ArgumentDesc arg;
+    arg.type.kind    = GetTypeKind( ( type ) );
+    arg.type.csName  = GetFullName( ( type ), Language::CS );
+    arg.type.cppName = GetFullName( ( type ), Language::CPP );
     arg.isConst      = isConst;
     arg.isPointer    = isPointer;
     arg.isLValRef    = isLValRef;
@@ -809,6 +850,9 @@ void ParseEnum( CXCursor cursor )
   auto key = name;
 
   std::wstring nameSpace = GetStackNamespace();
+
+  if ( nameSpace.empty() )
+    return;
 
   auto iter = enums.find( key );
   if ( iter != enums.end() )
@@ -1070,7 +1114,9 @@ std::wstring ExportCSArgumentType( const ArgumentDesc& argDesc )
 {
   std::wstring s;
 
-  if ( argDesc.type.kind != TypeDesc::Kind::Class && argDesc.type.kind != TypeDesc::Kind::String && argDesc.type.kind != TypeDesc::Kind::Delegate )
+  if ( argDesc.type.kind != TypeDesc::Kind::Class
+    && argDesc.type.kind != TypeDesc::Kind::String
+    && argDesc.type.kind != TypeDesc::Kind::Delegate )
   {
     if ( argDesc.isLValRef || argDesc.isRValRef || argDesc.isPointer )
       s += L"ref ";
@@ -1449,7 +1495,7 @@ std::wstring ExportCPPMethodArgumentNames( const MethodDesc& methodDesc )
         code += L"*";
       else if ( argDesc.isRValRef )
         code += L"*";
-      code += L"reinterpret_cast< " + argDesc.type.cppName + L"* >( EasyMono::LoadNativePointer( " + argDesc.name + L" ) )";
+      code += L"reinterpret_cast< " + argDesc.type.cppName + L"* >( EasyMono::Detail::LoadNativePointer( " + argDesc.name + L" ) )";
     }
     else
       code += argDesc.name;

@@ -56,6 +56,10 @@ Strings are always a special type. On the interop interfaces, the tools recogniz
 When the C++ header parser encounters a definition of an `std::function` like so `using Foo = std::function< int(float floatArg, const wchar_t* stringArg)>` it generates a delegate in the C# side, like so: `public delegate int Foo( float floatArg, string? stringArg )`.
 On every exported C++ method which takes this type as an Rvalue reference, a managed delegate can be passed. The tool will generate a C++ wrapper function which takes these arguments, and calls the managed delegate object with it.
 
+# Arrays
+An exported native method can use the `EasyMono::Array` type as an argument. In the managed wrapper, for `EasyMono::Array<int>` for example, it is going to generate `int[]`. The `EasyMono::Array` has facilities to iterate over the Mono array, converting the type to C++ is necessary.
+Scripted classes should always be used by pointer, and for strings, `const wchar_t*` should be used as expected.
+
 # Method specifiers
 On C++ methods, the `static`, `virtual` and `override` specifiers are parsed accordingly. You have to make sure to use `override` in native code properly, or the generated C# code is going to generate warnings about hiding the previous virtual method.
 
@@ -126,7 +130,10 @@ The roadmap (to be expanded):
  - [x] Handling enums in the tools
  - [x] Handling callbacks in the tools
  - [x] Handling static, virtual and overridden methods
- - [ ] Handling lists
+ - [x] Handling arrays
+ - [ ] Handling enumerables
  - [ ] Handling dictionaries
  - [ ] Handling strings in structs
- - [ ] Handling lists and dictionaries in structs
+ - [ ] Handling arrays in structs
+ - [ ] Handling enumerables in structs
+ - [ ] Handling dictionaries in structs

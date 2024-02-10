@@ -211,6 +211,38 @@ namespace Test
       return XMFLOAT2( 3, 4 );
     }
 
+    void PrintArrayOfInt( EasyMono::Array< int > array )
+    {
+      std::wcout << L"PrintArrayOfInt called with:";
+      for ( auto value : array )
+        std::wcout << L" " << std::to_wstring( value );
+      std::wcout << std::endl;
+    }
+
+    void PrintArrayOfString( EasyMono::Array< const wchar_t* > array )
+    {
+      std::wcout << L"PrintArrayOfString called with:";
+      for ( auto value : array )
+        std::wcout << L" " << value;
+      std::wcout << std::endl;
+    }
+
+    void PrintArrayOfObjects( EasyMono::Array< ScriptTest* > array )
+    {
+      std::wcout << L"PrintArrayOfObjects called with:";
+      for ( auto value : array )
+        std::wcout << L" " << ( value ? value->GetString() : L"null" );
+      std::wcout << std::endl;
+    }
+
+    void PrintArrayOfStructs( EasyMono::Array< Struct1::LargestStruct > array )
+    {
+      std::wcout << L"PrintArrayOfStructs called with:";
+      for ( auto value : array )
+        std::wcout << L" " << std::to_wstring( value.a ) << ", " << std::to_wstring( value.b ) << ", " << std::to_wstring( value.c ) << ", " << std::to_wstring( value.d ) << " |";
+      std::wcout << std::endl;
+    }
+
     static ScriptTest* CreateInstance( int a, const wchar_t* s, const XMFLOAT3& v )
     {
       return new ScriptTest( a, s, v );

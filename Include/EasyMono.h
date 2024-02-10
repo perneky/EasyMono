@@ -1,12 +1,18 @@
 #pragma once
 
 #include <stdint.h>
-#include <mono/metadata/object-forward.h>
+#include <type_traits>
+#include <mono/metadata/object.h>
 
 #ifndef EASY_MONO_PARSER
-# define managed_export public
+  #define managed_export public
 #else
-# define managed_export struct __ManagedExport__; public
+  #define managed_export struct __ManagedExport__; public
+#endif
+
+#ifndef EASYMONO_ASSERT
+# include <cassert>
+# define EASYMONO_ASSERT assert
 #endif
 
 namespace EasyMono
@@ -51,6 +57,151 @@ namespace EasyMono
     
     mutable uint32_t monoObjectHandle = 0;
   };
+
+  namespace Detail
+  {
+    ScriptedClass* LoadNativePointer( MonoObject* monoObject );
+  }
+
+  struct ArrayBase
+  {
+    ArrayBase( MonoArray* monoArray ) : monoArray( monoArray ) {}
+
+    size_t length() const
+    {
+      return monoArray ? mono_array_length( monoArray ) : 0;
+    }
+
+    void* elem( size_t index, size_t elemSize ) const
+    {
+      return monoArray ? mono_array_addr_with_size( monoArray, elemSize, index ) : nullptr;
+    }
+
+    MonoArray* monoArray;
+  };
+
+  template< typename T >
+  struct strip
+  {
+    using type = std::remove_const_t< std::remove_pointer_t< T > >;
+  };
+
+  template< typename T >
+  struct is_string
+  {
+    static constexpr bool value = std::is_same_v< T, const wchar_t* >;
+  };
+
+  template< typename T >
+  struct is_scripted
+  {
+    static constexpr bool value = std::is_base_of_v< ScriptedClass, typename strip< T >::type >;
+  };
+
+
+  template< typename T, typename Enable = void >
+  struct Array;
+
+  template< typename T >
+  struct Array< T, std::enable_if_t< std::is_pod_v< T > && !is_string< T >::value && !is_scripted< T >::value > > sealed : private ArrayBase
+  {
+    using iterator = T*;
+    using const_iterator = const T*;
+
+    Array( MonoArray* monoArray ) : ArrayBase( monoArray ) {}
+
+    iterator begin() { return static_cast<T*>( elem( 0, sizeof( T ) ) ); }
+    iterator end() { return static_cast<T*>( elem( length(), sizeof( T ) ) ); }
+    const_iterator begin() const { return static_cast<T*>( elem( 0 ), sizeof( T ) ); }
+    const_iterator end() const { return static_cast<T*>( elem( size(), sizeof( T ) ) ); }
+
+    size_t size() const { return length(); }
+    bool empty() const { return length() == 0; }
+
+    T& operator[] ( size_t index ) { EASYMONO_ASSERT( index < length() ); return at( index ); }
+    const T& operator[] ( size_t index ) const { EASYMONO_ASSERT( index < length() ); return at( index ); }
+
+    T& at( size_t index ) { return *static_cast<T*>( elem( index, sizeof( T ) ) ); }
+    const T& at( size_t index ) const { return *static_cast<T*>( elem( index, sizeof( T ) ) ); }
+  };
+
+  template< typename T >
+  struct Array< T, std::enable_if_t< is_string< T >::value > > sealed : private ArrayBase
+  {
+    struct iterator_impl
+    {
+      mutable size_t index;
+      Array& array;
+
+      iterator_impl( size_t index, Array& array ) : index( index ), array( array ) {}
+
+      T operator * () const { return array[ index ]; }
+
+      bool operator == ( const iterator_impl& other ) const { return index == other.index; }
+      bool operator != ( const iterator_impl& other ) const { return index != other.index; }
+
+      iterator_impl& operator ++ () { ++index; return *this; }
+      iterator_impl& operator ++ (int) { ++index; return *this; }
+    };
+
+    using iterator = iterator_impl;
+    using const_iterator = const iterator_impl;
+
+    Array( MonoArray* monoArray ) : ArrayBase( monoArray ) {}
+
+    iterator begin() { return iterator( 0, *this ); }
+    iterator end() { return iterator( length(), *this); }
+    const_iterator begin() const { return iterator( 0, *this ); }
+    const_iterator end() const { return iterator( length(), *this ); }
+
+    size_t size() const { return length(); }
+    bool empty() const { return length() == 0; }
+
+    T operator[] ( size_t index ) { EASYMONO_ASSERT( index < length() ); return at( index ); }
+    const T operator[] ( size_t index ) const { EASYMONO_ASSERT( index < length() ); return at( index ); }
+
+    T at( size_t index ) { return mono_string_chars( *(MonoString**)elem( index, sizeof( MonoString* ) ) ); }
+    const T at( size_t index ) const { return mono_string_chars( *(MonoString**)elem( index, sizeof( MonoString* ) ) ); }
+  };
+
+  template< typename T >
+  struct Array< T, std::enable_if_t< is_scripted< T >::value > > sealed : private ArrayBase
+  {
+    struct iterator_impl
+    {
+      mutable size_t index;
+      Array& array;
+
+      iterator_impl( size_t index, Array& array ) : index( index ), array( array ) {}
+
+      T operator * () const { return array[ index ]; }
+
+      bool operator == ( const iterator_impl& other ) const { return index == other.index; }
+      bool operator != ( const iterator_impl& other ) const { return index != other.index; }
+
+      iterator_impl& operator ++ () { ++index; return *this; }
+      iterator_impl& operator ++ ( int ) { ++index; return *this; }
+    };
+
+    using iterator = iterator_impl;
+    using const_iterator = const iterator_impl;
+
+    Array( MonoArray* monoArray ) : ArrayBase( monoArray ) {}
+
+    iterator begin() { return iterator( 0, *this ); }
+    iterator end() { return iterator( length(), *this ); }
+    const_iterator begin() const { return iterator( 0, *this ); }
+    const_iterator end() const { return iterator( length(), *this ); }
+
+    size_t size() const { return length(); }
+    bool empty() const { return length() == 0; }
+
+    T operator[] ( size_t index ) { EASYMONO_ASSERT( index < length() ); return at( index ); }
+    const T operator[] ( size_t index ) const { EASYMONO_ASSERT( index < length() ); return at( index ); }
+
+    T at( size_t index ) { return reinterpret_cast<T>( EasyMono::Detail::LoadNativePointer( *(MonoObject**)elem( index, sizeof( MonoObject* ) ) ) ); }
+    const T at( size_t index ) const { return reinterpret_cast<T>( EasyMono::Detail::LoadNativePointer( *(MonoObject**)elem( index, sizeof( MonoObject* ) ) ) ); }
+  };
 }
 
 #ifdef IMPLEMENT_EASY_MONO
@@ -64,11 +215,6 @@ namespace EasyMono
 
 #include <vector>
 #include <string>
-
-#ifndef EASYMONO_ASSERT
-# include <cassert>
-# define EASYMONO_ASSERT assert
-#endif
 
 #ifndef EASYMONO_PRINT_EXCEPTION
 # include <iostream>
@@ -131,22 +277,6 @@ namespace EasyMono
     }
   }
 
-  ScriptedClass* LoadNativePointer( MonoObject* monoObject )
-  {
-    if ( !monoObject )
-      return nullptr;
-
-    auto monoClass = mono_object_get_class( monoObject );
-    assert( monoClass );
-    auto pointerField = mono_class_get_field_from_name( monoClass, "pointer" );
-    assert( pointerField );
-
-    uint64_t rawPointer;
-    mono_field_get_value( monoObject, pointerField, &rawPointer );
-
-    return reinterpret_cast< ScriptedClass* >( rawPointer );
-  }
-
   struct Binary
   {
     Binary() = default;
@@ -166,6 +296,22 @@ namespace EasyMono
 
   namespace Detail
   {
+    ScriptedClass* LoadNativePointer( MonoObject* monoObject )
+    {
+      if ( !monoObject )
+        return nullptr;
+
+      auto monoClass = mono_object_get_class( monoObject );
+      assert( monoClass );
+      auto pointerField = mono_class_get_field_from_name( monoClass, "pointer" );
+      assert( pointerField );
+
+      uint64_t rawPointer;
+      mono_field_get_value( monoObject, pointerField, &rawPointer );
+
+      return reinterpret_cast<ScriptedClass*>( rawPointer );
+    }
+
     MonoImage* GetMainMonoImage()
     {
       return binaries.front().second.image;
