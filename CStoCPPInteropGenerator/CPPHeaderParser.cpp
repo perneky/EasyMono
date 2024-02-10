@@ -528,6 +528,8 @@ std::wstring GetFullName( CXType type, Language lang )
     if ( lang == Language::CS )
       return L"System.Collections.Generic.List<" + asArgument.type.csName + L">";
 
+    return L"MonoObject*";
+
     if ( asArgument.type.kind == TypeDesc::Kind::String )
       return L"EasyMono::List<const wchar_t*>";
 

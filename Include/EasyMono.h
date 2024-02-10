@@ -205,15 +205,21 @@ namespace EasyMono
 
   struct ListBase
   {
-    ListBase( MonoObject* monoObject ) : monoObject( monoObject ) {}
+    ListBase( MonoObject* monoObject )
+      : monoObject( monoObject )
+    {
+      if ( monoObject )
+      {
+        auto monoClass = mono_object_get_class( monoObject );
+        get_Count = mono_class_get_method_from_name( monoClass, "get_Count", 0 );
+        get_Item = mono_class_get_method_from_name( monoClass, "get_Item", 1 );
+      }
+    }
 
     size_t length() const
     {
       if ( !monoObject )
         return 0;
-
-      auto monoClass = mono_object_get_class( monoObject );
-      auto get_Count = mono_class_get_method_from_name( monoClass, "get_Count", 0 );
 
       return *(size_t*)mono_object_unbox( mono_runtime_invoke( get_Count, monoObject, nullptr, nullptr ) );
     }
@@ -223,14 +229,13 @@ namespace EasyMono
       if ( !monoObject )
         return nullptr;
 
-      auto monoClass = mono_object_get_class( monoObject );
-      auto get_Item = mono_class_get_method_from_name( monoClass, "get_Item", 1 );
-
       void* args[] = { &index };
       return monoObject ? mono_runtime_invoke( get_Item, monoObject, args, nullptr ) : nullptr;
     }
 
     MonoObject* monoObject;
+    MonoMethod* get_Count = nullptr;
+    MonoMethod* get_Item = nullptr;
   };
 
   template< typename T, typename Enable = void >
@@ -336,7 +341,7 @@ namespace EasyMono
     using iterator = iterator_impl;
     using const_iterator = const iterator_impl;
 
-    List( MonoObject* monoObject ) : ArrayBase( monoObject ) {}
+    List( MonoObject* monoObject ) : ListBase( monoObject ) {}
 
     iterator begin() { return iterator( 0, *this ); }
     iterator end() { return iterator( length(), *this ); }
