@@ -57,11 +57,14 @@ When the C++ header parser encounters a definition of an `std::function` like so
 On every exported C++ method which takes this type as an Rvalue reference, a managed delegate can be passed. The tool will generate a C++ wrapper function which takes these arguments, and calls the managed delegate object with it.
 
 # Arrays
-An exported native method can use the `EasyMono::Array` type as an argument. In the managed wrapper, for `EasyMono::Array<int>` for example, it is going to generate `int[]`. The `EasyMono::Array` has facilities to iterate over the Mono array, converting the type to C++ is necessary.
+An exported native method can use the `EasyMono::Array` type as an argument. In the managed wrapper, for `EasyMono::Array<int>` for example, it is going to generate `int[]`. The `EasyMono::Array` has facilities to iterate over the Mono array, converting the type to C++ if necessary.
 Scripted classes should always be used by pointer, and for strings, `const wchar_t*` should be used as expected.
 
 # Lists
-An exported native method can use the `EasyMono::List` type as an argument. In the managed wrapper, for `EasyMono::List<int>` for example, it is going to generate `System.Collections.Generic.List<int>`. The `EasyMono::List` has facilities to iterate over the Mono list, converting the type to C++ is necessary.
+An exported native method can use the `EasyMono::List` type as an argument. In the managed wrapper, for `EasyMono::List<int>` for example, it is going to generate `System.Collections.Generic.List<int>`. The `EasyMono::List` has facilities to iterate over the Mono list, converting the type to C++ if necessary.
+
+# Dictionaries
+An exported native method can use the `EasyMono::Dictionary` type as an argument. In the managed wrapper, for `EasyMono::Dictionary<int, const wchar_t*>` for example, it is going to generate `System.Collections.Generic.Dictionary<int, string>`. The `EasyMono::Dictionary` has facilities to search in the Mono dictionary, converting the types between C++ and C# if necessary.
 
 # Method specifiers
 On C++ methods, the `static`, `virtual` and `override` specifiers are parsed accordingly. You have to make sure to use `override` in native code properly, or the generated C# code is going to generate warnings about hiding the previous virtual method.
@@ -135,7 +138,7 @@ The roadmap (to be expanded):
  - [x] Handling static, virtual and overridden methods
  - [x] Handling arrays
  - [x] Handling lists
- - [ ] Handling dictionaries
+ - [x] Handling dictionaries
  - [ ] Handling strings in structs
  - [ ] Handling arrays in structs
  - [ ] Handling lists in structs

@@ -1,4 +1,5 @@
 using System.Numerics;
+using Test;
 
 namespace MonoTest
 {
@@ -150,6 +151,16 @@ namespace MonoTest
       tester.PrintListOfString( new List<string> { "EasyMono", "for", "the", "win!" } );
       tester.PrintListOfObjects( new List<Test.ScriptTest> { tester, testerFromStatic, null } );
       tester.PrintListOfStructs( new List<Test.Struct1.LargestStruct> { new Test.Struct1.LargestStruct { a = 1, b = 3, c = 5, d = 7 }, new Test.Struct1.LargestStruct { a = 11, b = 13, c = 15, d = 17 } } );
+
+      /////////////////////////////////////////////////
+      Console.WriteLine( "" );
+      Console.WriteLine( "Testing dictionaries" );
+      Console.WriteLine( "========================" );
+      tester.TestDictionaryValVal( new Dictionary<int, int> { { 1, 5 }, { 2, 54 }, { 4, 432 } } );
+      tester.TestDictionaryValString( new Dictionary<int, string> { { 1, "foo" }, { 2, "bar" }, { 4, "baz" } } );
+      tester.TestDictionaryValSC( new Dictionary<int, ScriptTest> { { 1, tester }, { 2, nativeTester }, { 4, null } } );
+      tester.TestDictionaryStringString( new Dictionary<string, string> { { "foo", "white" }, { "bar", "black" } } );
+      tester.TestDictionarySCString( new Dictionary<ScriptTest, string> { { tester, "yes" } } );
 
       return tmp;
     }

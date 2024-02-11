@@ -275,6 +275,79 @@ namespace Test
       std::wcout << std::endl;
     }
 
+    void TestDictionaryValVal( EasyMono::Dictionary< int, int > dic )
+    {
+      std::wstring null( L"null" );
+      int value1, value2, value3, value4;
+
+      std::wcout << L"TestDictionaryValVal called with size " << std::to_wstring( dic.size() ) << std::endl;
+
+      bool has1 = dic.tryGetValue( 1, value1 );
+      bool has2 = dic.tryGetValue( 2, value2 );
+      bool has3 = dic.tryGetValue( 3, value3 );
+      bool has4 = dic.tryGetValue( 4, value4 );
+      std::wcout << L"TestDictionaryValVal 1 -> " << ( has1 ? std::to_wstring( value1 ) : null ) << std::endl;
+      std::wcout << L"TestDictionaryValVal 2 -> " << ( has2 ? std::to_wstring( value2 ) : null ) << std::endl;
+      std::wcout << L"TestDictionaryValVal 3 -> " << ( has3 ? std::to_wstring( value3 ) : null ) << std::endl;
+      std::wcout << L"TestDictionaryValVal 4 -> " << ( has4 ? std::to_wstring( value4 ) : null ) << std::endl;
+    }
+
+    void TestDictionaryValString( EasyMono::Dictionary< int, const wchar_t* > dic )
+    {
+      const wchar_t *value1, *value2, *value3, *value4;
+
+      std::wcout << L"TestDictionaryValString called with size " << std::to_wstring( dic.size() ) << std::endl;
+
+      bool has1 = dic.tryGetValue( 1, value1 );
+      bool has2 = dic.tryGetValue( 2, value2 );
+      bool has3 = dic.tryGetValue( 3, value3 );
+      bool has4 = dic.tryGetValue( 4, value4 );
+      std::wcout << L"TestDictionaryValString 1 -> " << ( has1 ? value1 : L"null" ) << std::endl;
+      std::wcout << L"TestDictionaryValString 2 -> " << ( has2 ? value2 : L"null" ) << std::endl;
+      std::wcout << L"TestDictionaryValString 3 -> " << ( has3 ? value3 : L"null" ) << std::endl;
+      std::wcout << L"TestDictionaryValString 4 -> " << ( has4 ? value4 : L"null" ) << std::endl;
+    }
+
+    void TestDictionaryValSC( EasyMono::Dictionary< int, ScriptTest* > dic )
+    {
+      ScriptTest *value1, *value2, *value3, *value4;
+
+      std::wcout << L"TestDictionaryValSC called with size " << std::to_wstring( dic.size() ) << std::endl;
+
+      bool has1 = dic.tryGetValue( 1, value1 );
+      bool has2 = dic.tryGetValue( 2, value2 );
+      bool has3 = dic.tryGetValue( 3, value3 );
+      bool has4 = dic.tryGetValue( 4, value4 );
+      std::wcout << L"TestDictionaryValSC 1 -> " << ( ( has1 && value1 ) ? value1->GetString() : L"null" ) << std::endl;
+      std::wcout << L"TestDictionaryValSC 2 -> " << ( ( has2 && value2 ) ? value2->GetString() : L"null" ) << std::endl;
+      std::wcout << L"TestDictionaryValSC 3 -> " << ( ( has3 && value3 ) ? value3->GetString() : L"null" ) << std::endl;
+      std::wcout << L"TestDictionaryValSC 4 -> " << ( ( has4 && value4 ) ? value4->GetString() : L"null" ) << std::endl;
+    }
+
+    void TestDictionaryStringString( EasyMono::Dictionary< const wchar_t*, const wchar_t* > dic )
+    {
+      const wchar_t *value1, *value2, *value3, *value4;
+
+      std::wcout << L"TestDictionaryStringString called with size " << std::to_wstring( dic.size() ) << std::endl;
+
+      bool has1 = dic.tryGetValue( L"foo", value1 );
+      bool has2 = dic.tryGetValue( L"bar", value2 );
+      bool has3 = dic.tryGetValue( L"baz", value3 );
+      std::wcout << L"TestDictionaryStringString foo -> " << ( ( has1 && value1 ) ? value1 : L"null" ) << std::endl;
+      std::wcout << L"TestDictionaryStringString bar -> " << ( ( has2 && value2 ) ? value2 : L"null" ) << std::endl;
+      std::wcout << L"TestDictionaryStringString baz -> " << ( ( has3 && value3 ) ? value3 : L"null" ) << std::endl;
+    }
+
+    void TestDictionarySCString( EasyMono::Dictionary< ScriptTest*, const wchar_t* > dic )
+    {
+      const wchar_t* value;
+
+      std::wcout << L"TestDictionarySCString called with size " << std::to_wstring( dic.size() ) << std::endl;
+
+      bool has = dic.tryGetValue( this, value );
+      std::wcout << L"TestDictionarySCString this -> " << ( ( has && value ) ? value : L"null" ) << std::endl;
+    }
+
     static ScriptTest* CreateInstance( int a, const wchar_t* s, const XMFLOAT3& v )
     {
       return new ScriptTest( a, s, v );

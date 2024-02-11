@@ -490,12 +490,11 @@ ArgumentDesc ParseArgument( CXType type, bool isConst, bool isPointer, bool isLV
 
 std::wstring GetFullName( CXType type, Language lang )
 {
-  auto getTemplateArgument = []( CXCursor typeDecl )
+  auto getTemplateArgument = []( CXCursor typeDecl, int argIx )
   {
     int numTemplateArguments = clang_Cursor_getNumTemplateArguments( typeDecl );
-    assert( numTemplateArguments == 2 );
 
-    auto arrayType = clang_Cursor_getTemplateArgumentType( typeDecl, 0 );
+    auto arrayType = clang_Cursor_getTemplateArgumentType( typeDecl, argIx );
     auto arrayTypeIsConst = clang_isConstQualifiedType( clang_getNonReferenceType( arrayType ) );
     return ParseArgument( arrayType, arrayTypeIsConst, false, false, false );
   };
@@ -504,43 +503,31 @@ std::wstring GetFullName( CXType type, Language lang )
   auto fullName = GetFullName( typeDecl, lang );
   if ( ( lang == Language::CS && fullName == L"EasyMono.Array" ) || ( lang == Language::CPP && fullName == L"EasyMono::Array" ) )
   {
-    auto asArgument = getTemplateArgument( typeDecl );
+    auto asArgument = getTemplateArgument( typeDecl, 0 );
 
     if ( lang == Language::CS )
       return asArgument.type.csName + L"[]";
 
-    if ( asArgument.type.kind == TypeDesc::Kind::String )
-      return L"EasyMono::Array<const wchar_t*>";
-
-    if ( asArgument.type.kind == TypeDesc::Kind::Class )
-    {
-      if ( !asArgument.isPointer )
-        return L"ArrayOfScriptedClassShouldBePointers";
-      return ( asArgument.isConst ? L"EasyMono::Array<const " : L"EasyMono::Array<" ) + asArgument.type.cppName + L"*>";
-    }
-
-    return L"EasyMono::Array<" + asArgument.type.cppName + L">";
+    return L"MonoArray*";
   }
   if ( ( lang == Language::CS && fullName == L"EasyMono.List" ) || ( lang == Language::CPP && fullName == L"EasyMono::List" ) )
   {
-    auto asArgument = getTemplateArgument( typeDecl );
+    auto asArgument = getTemplateArgument( typeDecl, 0 );
 
     if ( lang == Language::CS )
       return L"System.Collections.Generic.List<" + asArgument.type.csName + L">";
 
     return L"MonoObject*";
+  }
+  if ( ( lang == Language::CS && fullName == L"EasyMono.Dictionary" ) || ( lang == Language::CPP && fullName == L"EasyMono::Dictionary" ) )
+  {
+    auto keyArgument = getTemplateArgument( typeDecl, 0 );
+    auto valueArgument = getTemplateArgument( typeDecl, 1 );
 
-    if ( asArgument.type.kind == TypeDesc::Kind::String )
-      return L"EasyMono::List<const wchar_t*>";
+    if ( lang == Language::CS )
+      return L"System.Collections.Generic.Dictionary<" + keyArgument.type.csName + L", " + valueArgument.type.csName + L">";
 
-    if ( asArgument.type.kind == TypeDesc::Kind::Class )
-    {
-      if ( !asArgument.isPointer )
-        return L"ListOfScriptedClassShouldBePointers";
-      return ( asArgument.isConst ? L"EasyMono::List<const " : L"EasyMono::List<" ) + asArgument.type.cppName + L"*>";
-    }
-
-    return L"EasyMono::List<" + asArgument.type.cppName + L">";
+    return L"MonoObject*";
   }
   return fullName;
 }

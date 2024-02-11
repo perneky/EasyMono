@@ -82,6 +82,12 @@ namespace EasyMono
     static constexpr bool value = std::is_base_of_v< ScriptedClass, typename strip< T >::type >;
   };
 
+  template< typename T >
+  struct is_value_type
+  {
+    static constexpr bool value = std::is_pod_v< T > && !is_string< T >::value && !is_scripted< T >::value;
+  };
+
   struct ArrayBase
   {
     ArrayBase( MonoArray* monoArray ) : monoArray( monoArray ) {}
@@ -103,7 +109,7 @@ namespace EasyMono
   struct Array;
 
   template< typename T >
-  struct Array< T, std::enable_if_t< std::is_pod_v< T > && !is_string< T >::value && !is_scripted< T >::value > > sealed : private ArrayBase
+  struct Array< T, std::enable_if_t< is_value_type< T >::value > > sealed : private ArrayBase
   {
     using iterator = T*;
     using const_iterator = const T*;
@@ -230,7 +236,7 @@ namespace EasyMono
         return nullptr;
 
       void* args[] = { &index };
-      return monoObject ? mono_runtime_invoke( get_Item, monoObject, args, nullptr ) : nullptr;
+      return mono_runtime_invoke( get_Item, monoObject, args, nullptr );
     }
 
     MonoObject* monoObject;
@@ -242,7 +248,7 @@ namespace EasyMono
   struct List;
 
   template< typename T >
-  struct List< T, std::enable_if_t< std::is_pod_v< T > && !is_string< T >::value && !is_scripted< T >::value > > sealed : private ListBase
+  struct List< T, std::enable_if_t< is_value_type< T >::value > > sealed : private ListBase
   {
     struct iterator_impl
     {
@@ -356,6 +362,74 @@ namespace EasyMono
 
     T at( size_t index ) { return reinterpret_cast<T>( EasyMono::Detail::LoadNativePointer( (MonoObject*)elem( index ) ) ); }
     const T at( size_t index ) const { return reinterpret_cast<T>( EasyMono::Detail::LoadNativePointer( (MonoObject*)elem( index ) ) ); }
+  };
+
+  struct DictionaryBase
+  {
+    DictionaryBase( MonoObject* monoObject )
+      : monoObject( monoObject )
+    {
+      if ( monoObject )
+      {
+        auto monoClass = mono_object_get_class( monoObject );
+        get_Count = mono_class_get_method_from_name( monoClass, "get_Count", 0 );
+        tryGetValue = mono_class_get_method_from_name( monoClass, "TryGetValue", 2 );
+      }
+    }
+
+    size_t length() const
+    {
+      if ( !monoObject )
+        return 0;
+
+      return *(size_t*)mono_object_unbox( mono_runtime_invoke( get_Count, monoObject, nullptr, nullptr ) );
+    }
+
+    bool elem( const void* key, void* value ) const
+    {
+      if ( !monoObject )
+        return false;
+
+      const void* args[] = { key, value };
+      return *(MonoBoolean*)mono_object_unbox( mono_runtime_invoke( tryGetValue, monoObject, (void**)args, nullptr ) );
+    }
+
+    MonoObject* monoObject;
+    MonoMethod* get_Count = nullptr;
+    MonoMethod* tryGetValue = nullptr;
+  };
+
+  namespace Detail
+  {
+    template< typename T > struct DicKeyValueConv { static const void* convert( const T& key ) { return &key; } };
+    struct DicKeyStringConv { static const void* convert( const wchar_t* key ) { return mono_string_from_utf16( (mono_unichar2*)key ); } };
+    struct DicKeySCConv { static const void* convert( const ScriptedClass* key ) { return key->GetOrCreateMonoObject(); } };
+
+    template< typename T > struct DicValueValueConv { static void convert( T& ) {} };
+    struct DicValueStringConv { static void convert( const wchar_t*& value ) { value = mono_string_chars( (MonoString*)value ); } };
+    template< typename T > struct DicValueSCConv { static void convert( T& value ) { value = value ? (T)Detail::LoadNativePointer( (MonoObject*)value ) : nullptr; } };
+  }
+
+  template< typename Key, typename Value >
+  struct Dictionary sealed : private DictionaryBase
+  {
+    using KeyConverter = std::conditional_t< is_value_type< Key >::value, Detail::DicKeyValueConv< Key >, std::conditional_t< is_string< Key >::value, Detail::DicKeyStringConv, Detail::DicKeySCConv > >;
+    using ValueConverter = std::conditional_t< is_value_type< Value >::value, Detail::DicValueValueConv< Value >, std::conditional_t< is_string< Value >::value, Detail::DicValueStringConv, Detail::DicValueSCConv< Value > > >;
+
+    Dictionary( MonoObject* monoObject ) : DictionaryBase( monoObject ) {}
+
+    size_t size() const { return length(); }
+
+    bool tryGetValue( const Key& key, Value& value ) const
+    {
+      auto hasElem = elem( KeyConverter::convert( key ), &value );
+      if ( !hasElem )
+        return false;
+
+      ValueConverter::convert( value );
+
+      return true;
+    }
   };
 }
 
