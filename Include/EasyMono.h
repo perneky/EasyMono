@@ -109,7 +109,7 @@ namespace EasyMono
   struct Array;
 
   template< typename T >
-  struct Array< T, std::enable_if_t< is_value_type< T >::value > > sealed : private ArrayBase
+  struct Array< T, std::enable_if_t< is_value_type< T >::value > > final : private ArrayBase
   {
     using iterator = T*;
     using const_iterator = const T*;
@@ -132,7 +132,7 @@ namespace EasyMono
   };
 
   template< typename T >
-  struct Array< T, std::enable_if_t< is_string< T >::value > > sealed : private ArrayBase
+  struct Array< T, std::enable_if_t< is_string< T >::value > > final : private ArrayBase
   {
     struct iterator_impl
     {
@@ -171,7 +171,7 @@ namespace EasyMono
   };
 
   template< typename T >
-  struct Array< T, std::enable_if_t< is_scripted< T >::value > > sealed : private ArrayBase
+  struct Array< T, std::enable_if_t< is_scripted< T >::value > > final : private ArrayBase
   {
     struct iterator_impl
     {
@@ -248,7 +248,7 @@ namespace EasyMono
   struct List;
 
   template< typename T >
-  struct List< T, std::enable_if_t< is_value_type< T >::value > > sealed : private ListBase
+  struct List< T, std::enable_if_t< is_value_type< T >::value > > final : private ListBase
   {
     struct iterator_impl
     {
@@ -287,7 +287,7 @@ namespace EasyMono
   };
 
   template< typename T >
-  struct List< T, std::enable_if_t< is_string< T >::value > > sealed : private ListBase
+  struct List< T, std::enable_if_t< is_string< T >::value > > final : private ListBase
   {
     struct iterator_impl
     {
@@ -326,7 +326,7 @@ namespace EasyMono
   };
 
   template< typename T >
-  struct List< T, std::enable_if_t< is_scripted< T >::value > > sealed : private ListBase
+  struct List< T, std::enable_if_t< is_scripted< T >::value > > final : private ListBase
   {
     struct iterator_impl
     {
@@ -411,7 +411,7 @@ namespace EasyMono
   }
 
   template< typename Key, typename Value >
-  struct Dictionary sealed : private DictionaryBase
+  struct Dictionary final : private DictionaryBase
   {
     using KeyConverter = std::conditional_t< is_value_type< Key >::value, Detail::DicKeyValueConv< Key >, std::conditional_t< is_string< Key >::value, Detail::DicKeyStringConv, Detail::DicKeySCConv > >;
     using ValueConverter = std::conditional_t< is_value_type< Value >::value, Detail::DicValueValueConv< Value >, std::conditional_t< is_string< Value >::value, Detail::DicValueStringConv, Detail::DicValueSCConv< Value > > >;

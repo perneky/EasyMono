@@ -20,53 +20,68 @@ namespace Scripting
   }}
 }}
 
-namespace {0}::{1}
+namespace {0}
 {{
+  class {1} final
+  {{
 {2}
+{3}
+  }};
 }}
 """;
 
-const string ctorTemplate = """
-  inline void {0}( {1} )
-  {{
-    auto monoClass = mono_class_from_name( EasyMono::Detail::GetMainMonoImage(), "{2}", "{3}" ); assert( monoClass );
-    auto monoDesc  = mono_method_desc_new( ":ctor({4})", false ); assert( monoDesc );
-    auto monoFunc  = mono_method_desc_search_in_class( monoDesc, monoClass ); assert( monoFunc );
-    mono_method_desc_free( monoDesc );
-    {5}
-    MonoObject* monoException = nullptr;
-    mono_runtime_invoke( monoFunc, nullptr, {6}, &monoException );
-    if ( monoException )
+const string selfInteropTemplate = """
+    uint32_t monoObjectHandle = 0;
+  public:
+    ~{0}()
     {{
-      EasyMono::Detail::PrintException( monoException );
-      assert( false );
+      mono_gchandle_free( monoObjectHandle );
     }}
-  }}
+""";
+
+const string ctorTemplate = """
+    {0}( {1} )
+    {{
+      auto monoClass  = mono_class_from_name( EasyMono::Detail::GetMainMonoImage(), "{2}", "{3}" ); assert( monoClass );
+      auto monoObject = mono_object_new( mono_domain_get(), monoClass ); assert( monoObject );
+      auto monoDesc   = mono_method_desc_new( ":.ctor({4})", false ); assert( monoDesc );
+      auto monoFunc   = mono_method_desc_search_in_class( monoDesc, monoClass ); assert( monoFunc );
+      mono_method_desc_free( monoDesc );
+      {5}
+      MonoObject* monoException = nullptr;
+      mono_runtime_invoke( monoFunc, monoObject, {6}, &monoException );
+      if ( monoException )
+      {{
+        EasyMono::Detail::PrintException( monoException );
+        assert( false );
+      }}
+      monoObjectHandle = mono_gchandle_new( monoObject, false );
+    }}
 
 """;
 
 const string methodTemplate = """
-  inline {0} {1}( {2} )
-  {{
-    auto monoClass = mono_class_from_name( EasyMono::Detail::GetMainMonoImage(), "{3}", "{4}" ); assert( monoClass );
-    auto monoDesc  = mono_method_desc_new( ":{5}({6})", false ); assert( monoDesc );
-    auto monoFunc  = mono_method_desc_search_in_class( monoDesc, monoClass ); assert( monoFunc );
-    mono_method_desc_free( monoDesc );
-    {7}
-    MonoObject* monoException = nullptr;
-    {8}mono_runtime_invoke( monoFunc, nullptr, {9}, &monoException );
-    if ( monoException )
-    {{
-      EasyMono::Detail::PrintException( monoException );
-      assert( false );
-    }}{10}
-  }}
+    {0}{1} {2}( {3} )
+    {{{4}
+      auto monoClass = mono_class_from_name( EasyMono::Detail::GetMainMonoImage(), "{5}", "{6}" ); assert( monoClass );
+      auto monoDesc  = mono_method_desc_new( ":{7}({8})", false ); assert( monoDesc );
+      auto monoFunc  = mono_method_desc_search_in_class( monoDesc, monoClass ); assert( monoFunc );
+      mono_method_desc_free( monoDesc );
+      {9}
+      MonoObject* monoException = nullptr;
+      {10}mono_runtime_invoke( monoFunc, {11}, {12}, &monoException );
+      if ( monoException )
+      {{
+        EasyMono::Detail::PrintException( monoException );
+        assert( false );
+      }}{13}
+    }}
 
 """;
 
 const string transformedArgumentListTemplate = """
 
-    const void* args[] = {{ {0} }};
+      const void* args[] = {{ {0} }};
 
 """;
 
@@ -175,10 +190,29 @@ string ToCpp( ParameterInfo info, List<Tuple<string, string>> knownStructures )
   return result;
 }
 
+Dictionary< Type, string > typeAlias = new Dictionary< Type, string >
+{
+  { typeof(bool), "bool" },
+  { typeof(byte), "byte" },
+  { typeof(char), "char" },
+  { typeof(decimal), "decimal" },
+  { typeof(double), "double" },
+  { typeof(float), "float" },
+  { typeof(int), "int" },
+  { typeof(long), "long" },
+  { typeof(object), "object" },
+  { typeof(sbyte), "sbyte" },
+  { typeof(short), "short" },
+  { typeof(string), "string" },
+  { typeof(uint), "uint" },
+  { typeof(ulong), "ulong" },
+  { typeof(void), "void" }
+};
+
 string ToSig( ParameterInfo info )
 {
-  if ( info.ParameterType == typeof( string ) )
-    return "string";
+  if ( typeAlias.TryGetValue( info.ParameterType, out string result ) )
+    return result;
   return info.ParameterType.Name;
 }
 
@@ -194,9 +228,9 @@ string ToCppArg( ParameterInfo info )
     return info.Name ?? "NamelessParameter";
 }
 
-string ExportParameters( IEnumerable< ParameterInfo > parameters, bool ctor, List<Tuple<string, string>> knownStructures )
+string ExportParameters( IEnumerable< ParameterInfo > parameters, List<Tuple<string, string>> knownStructures )
 {
-  var code = ctor ? "MonoObject* self" : "";
+  var code = "";
   foreach ( var parameter in parameters )
     code += string.Format( "{0} {1}, ", ToCpp( parameter, knownStructures ), parameter.Name );
   return code.TrimEnd().TrimEnd( ',' );
@@ -242,18 +276,18 @@ string ExportReturnReturnValue( ParameterInfo parameter )
     return "";
 
   if ( parameter.ParameterType.IsValueType )
-    return "\n\n    return *(int32_t*)mono_object_unbox( retVal );";
+    return "\n\n      return *(int32_t*)mono_object_unbox( retVal );";
   else if ( parameter.ParameterType == typeof( string ) )
-    return "\n\n    return mono_string_chars( (MonoString*)retVal );";
+    return "\n\n      return mono_string_chars( (MonoString*)retVal );";
   else
-    return "\n\n    return retVal;";
+    return "\n\n      return retVal;";
 }
 
 string ExportCtor( ConstructorInfo ctor, Type klass, List<Tuple<string, string>> knownStructures )
 {
   return string.Format( ctorTemplate
-                      , ctor.Name
-                      , ExportParameters( ctor.GetParameters(), true, knownStructures )
+                      , klass.Name
+                      , ExportParameters( ctor.GetParameters(), knownStructures )
                       , klass.Namespace
                       , klass.Name
                       , ExportDeclarationArgumentList( ctor.GetParameters() )
@@ -261,18 +295,26 @@ string ExportCtor( ConstructorInfo ctor, Type klass, List<Tuple<string, string>>
                       , ExportPassTransformedArgumentList( ctor.GetParameters() ) );
 }
 
+string ExportGettingSelf(MethodInfo method)
+{
+  return method.IsStatic ? "" : "\n      auto monoObject = mono_gchandle_get_target( monoObjectHandle );";
+}
+
 string ExportMethod( MethodInfo method, Type klass, List<Tuple<string, string>> knownStructures )
 {
   return string.Format( methodTemplate
+                      , method.IsStatic ? "static " : ""
                       , ToCpp( method.ReturnParameter, knownStructures )
                       , method.Name
-                      , ExportParameters( method.GetParameters(), false, knownStructures )
+                      , ExportParameters( method.GetParameters(), knownStructures )
+                      , ExportGettingSelf( method )
                       , klass.Namespace
                       , klass.Name
                       , method.Name
                       , ExportDeclarationArgumentList( method.GetParameters() )
                       , ExportTransformedArgumentList( method.GetParameters() )
                       , ExportReturnValue( method.ReturnParameter )
+                      , method.IsStatic ? "nullptr" : "monoObject"
                       , ExportPassTransformedArgumentList( method.GetParameters() )
                       , ExportReturnReturnValue( method.ReturnParameter ) );
 }
@@ -333,15 +375,19 @@ foreach ( var type in assembly.GetTypes() )
     if ( MethodNeedsExporting( method ) )
       functions += ExportMethod( method, type, knownStructures );
 
-  var fileContents = string.Format( fileTemplate, ToCppNamespace( type.Namespace ?? "#MissingNamespace" ), type.Name, functions );
+  var fileContents = string.Format( fileTemplate
+                                  , ToCppNamespace( type.Namespace ?? "#MissingNamespace" )
+                                  , type.Name
+                                  , type.IsAbstract && type.IsSealed ? "  public:" : string.Format( selfInteropTemplate, type.Name )
+                                  , functions );
 
   var path = args[ 2 ];
-  
+
   var namespaceElements = type.Namespace?.Split( '.' );
   if ( namespaceElements != null )
     foreach ( var elem in namespaceElements )
       path = Path.Combine( path, elem );
-  
+
   Directory.CreateDirectory( path );
   path = Path.Combine( path, type.Name + ".h" );
   File.WriteAllText( path, fileContents );

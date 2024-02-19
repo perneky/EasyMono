@@ -165,4 +165,22 @@ namespace MonoTest
       return tmp;
     }
   }
+
+  public class TestbedObject
+  {
+    int value = 0;
+
+    [EasyMono.ExportToCpp]
+    public TestbedObject(int value)
+    {
+      this.value = value;
+    }
+
+    [EasyMono.ExportToCpp]
+    public int TestInterop(int value)
+    {
+      this.value += value + 1;
+      return this.value;
+    }
+  }
 }

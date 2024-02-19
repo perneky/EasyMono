@@ -4,6 +4,7 @@
 #include "ScriptTest.h"
 #include "Generated/RegisterScriptInterface.h"
 #include "CSInterop/MonoTest/Testbed.h"
+#include "CSInterop/MonoTest/TestbedObject.h"
 
 #include <iostream>
 #include <thread>
@@ -27,10 +28,16 @@ int main()
 
   MonoTest::Testbed::TestInterop( testObject.get(), L"This", XMFLOAT3( 10, 20, 30 ) );
 
-  EasyMono::List< int > foo( nullptr );
+  std::cout << "Testing working with script object" << std::endl;
+  std::cout << "==================================" << std::endl;
+
+  MonoTest::TestbedObject scriptObject( 32 );
+  auto testResult = scriptObject.TestInterop( 16 );
+  std::cout << "TestbedObject::TestInterop is " << std::to_string( testResult ) << std::endl;
 
   testObject.release();
 
+  std::cout <<              "=====================" << std::endl;
   std::cout << std::endl << "Collecting garbage..." << std::endl;
 
   EasyMono::GarbageCollect( false );

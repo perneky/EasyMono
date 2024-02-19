@@ -2,7 +2,11 @@
 <Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
-    <LocalDebuggerCommandArguments>$(SolutionDir)Test/ScriptTest.h $(SolutionDir)Test/Generated/RegisterScriptInterface.h $(SolutionDir)TestManaged/Generated $(SolutionDir)Test/Dictionary.txt ScriptedClassBase -std=c++20 -I $(SolutionDir) -I "C:/Program Files/Mono/include/mono-2.0" -I Test</LocalDebuggerCommandArguments>
+    <LocalDebuggerCommandArguments>
+    </LocalDebuggerCommandArguments>
+    <RemoteDebuggerCommandArguments />
+    <LocalDebuggerCommand>$(SolutionDir)ParseCppHeaders.bat</LocalDebuggerCommand>
+    <LocalDebuggerWorkingDirectory>$(SolutionDir)</LocalDebuggerWorkingDirectory>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>

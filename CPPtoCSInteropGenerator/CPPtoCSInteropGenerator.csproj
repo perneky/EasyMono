@@ -5,6 +5,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <StartArguments>..\\..\\..\\..\\TestManaged\\bin\\Debug\\net8.0\\TestManaged.dll ..\\..\\..\\..\\Test\\Dictionary.txt ..\\..\\..\\..\\Test\\CSInterop</StartArguments>
   </PropertyGroup>
 
 </Project>
