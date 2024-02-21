@@ -26,6 +26,10 @@ namespace EasyMono
 
   void Teardown();
 
+  void RegisterCurrentThread();
+
+  void UnregisterCurrentThread();
+
   void GarbageCollect( bool fast );
 
   namespace Detail
@@ -441,6 +445,8 @@ namespace EasyMono
 #include <mono/metadata/mono-debug.h>
 #include <mono/metadata/mono-gc.h>
 #include <mono/metadata/debug-helpers.h>
+#include <mono/metadata/threads.h>
+#include <mono/utils/mono-logger.h>
 
 #include <vector>
 #include <string>
@@ -558,12 +564,12 @@ namespace EasyMono
       auto monoStackMethod = mono_class_get_method_from_name( monoExceptionClass, "get_StackTrace", 0 );
 
       auto monoString = reinterpret_cast<MonoString*>( mono_runtime_invoke( monoMessageMethod, e, nullptr, nullptr ) );
-      EASYMONO_PRINT_EXCEPTION( mono_string_chars( monoString ) );
+      EASYMONO_PRINT_EXCEPTION( mono_string_to_utf8( monoString ) );
       monoString = reinterpret_cast<MonoString*>( mono_runtime_invoke( monoStackMethod, e, nullptr, nullptr ) );
       if ( monoString )
-        EASYMONO_PRINT_EXCEPTION( mono_string_chars( monoString ) );
+        EASYMONO_PRINT_EXCEPTION( mono_string_to_utf8( monoString ) );
       else
-        EASYMONO_PRINT_EXCEPTION( L"No stack available." );
+        EASYMONO_PRINT_EXCEPTION( "No stack available." );
     }
 
     void PrintException( MonoException* e )
@@ -583,6 +589,16 @@ namespace EasyMono
     {
       assert( nativePtr );
       reinterpret_cast<ScriptedClass*>( nativePtr )->SetMonoObject( nullptr );
+    }
+
+    static void MonoLogCallback(const char* log_domain, const char* log_level, const char* message, mono_bool fatal, void*)
+    {
+      #ifdef EASYMONO_LOG
+        EASYMONO_LOG(log_domain, log_level, message, fatal);
+      #else
+        std::cout << "Mono log event in " << log_domain << ", level is " << log_level << "." << std::endl;
+        std::cout << message << std::endl;
+      #endif
     }
   }
 
@@ -605,6 +621,8 @@ namespace EasyMono
 
     monoDomain = mono_jit_init( "scripting" );
 
+    mono_trace_set_log_handler( Detail::MonoLogCallback, nullptr );
+
     if ( allowDebugger )
       mono_debug_domain_create( monoDomain );
 
@@ -621,6 +639,16 @@ namespace EasyMono
       mono_jit_cleanup( monoDomain );
 
     monoDomain = nullptr;
+  }
+
+  void RegisterCurrentThread()
+  {
+    mono_thread_attach( monoDomain );
+  }
+
+  void UnregisterCurrentThread()
+  {
+    mono_thread_exit();
   }
 
   void GarbageCollect( bool fast )

@@ -1,0 +1,16 @@
+scriptbase ScriptedClassBase
+
+ignore std
+ignore ATL
+
+map DirectX::XMFLOAT2   System.Numerics.Vector2
+map DirectX::XMFLOAT3   System.Numerics.Vector3
+map DirectX::XMFLOAT4   System.Numerics.Vector4
+map DirectX::XMFLOAT4X4 System.Numerics.Matrix4x4
+
+csc ref_readonly
+
+clang -std=c++20
+clang -I "_cwd_"
+clang -I "C:/Program Files/Mono/include/mono-2.0"
+clang -I Test

@@ -11,7 +11,7 @@ const string fileTemplate = """
 #include <mono/metadata/class.h>
 #include <mono/metadata/debug-helpers.h>
 
-namespace Scripting
+namespace EasyMono
 {{
   namespace Detail
   {{
@@ -33,7 +33,11 @@ namespace {0}
 const string selfInteropTemplate = """
     uint32_t monoObjectHandle = 0;
   public:
-    ~{0}()
+    {0}( MonoObject* monoObject )
+    {{
+      monoObjectHandle = mono_gchandle_new( monoObject, false );
+    }}
+    ~{1}()
     {{
       mono_gchandle_free( monoObjectHandle );
     }}
@@ -68,13 +72,14 @@ const string methodTemplate = """
       auto monoFunc  = mono_method_desc_search_in_class( monoDesc, monoClass ); assert( monoFunc );
       mono_method_desc_free( monoDesc );
       {9}
+      {10}
       MonoObject* monoException = nullptr;
-      {10}mono_runtime_invoke( monoFunc, {11}, {12}, &monoException );
+      {11}mono_runtime_invoke( monoFunc, {12}, {13}, &monoException );
       if ( monoException )
       {{
         EasyMono::Detail::PrintException( monoException );
         assert( false );
-      }}{13}
+      }}{14}
     }}
 
 """;
@@ -197,7 +202,7 @@ Dictionary< Type, string > typeAlias = new Dictionary< Type, string >
   { typeof(char), "char" },
   { typeof(decimal), "decimal" },
   { typeof(double), "double" },
-  { typeof(float), "float" },
+  { typeof(float), "single" },
   { typeof(int), "int" },
   { typeof(long), "long" },
   { typeof(object), "object" },
@@ -270,7 +275,7 @@ string ExportReturnValue( ParameterInfo parameter )
   return "MonoObject* retVal = ";
 }
 
-string ExportReturnReturnValue( ParameterInfo parameter )
+string ExportReturnReturnValue( ParameterInfo parameter, List<Tuple<string, string>> knownStructures )
 {
   if ( parameter.ParameterType == typeof( void ) )
     return "";
@@ -280,7 +285,12 @@ string ExportReturnReturnValue( ParameterInfo parameter )
   else if ( parameter.ParameterType == typeof( string ) )
     return "\n\n      return mono_string_chars( (MonoString*)retVal );";
   else
-    return "\n\n      return retVal;";
+  {
+    var returnType = ToCpp( parameter, knownStructures );
+    if ( returnType.EndsWith( '*' ) )
+      returnType = returnType.Remove( returnType.Length - 1 );
+    return "\n\n      return new " + returnType + "(retVal);";
+  }
 }
 
 string ExportCtor( ConstructorInfo ctor, Type klass, List<Tuple<string, string>> knownStructures )
@@ -300,6 +310,11 @@ string ExportGettingSelf(MethodInfo method)
   return method.IsStatic ? "" : "\n      auto monoObject = mono_gchandle_get_target( monoObjectHandle );";
 }
 
+string ExportVirtualCallHandler( MethodInfo method, Type klass )
+{
+  return ( method.IsVirtual || method.IsAbstract || klass.IsInterface ) ? "\n      monoFunc = mono_object_get_virtual_method( monoObject, monoFunc );" : "";
+}
+
 string ExportMethod( MethodInfo method, Type klass, List<Tuple<string, string>> knownStructures )
 {
   return string.Format( methodTemplate
@@ -313,10 +328,11 @@ string ExportMethod( MethodInfo method, Type klass, List<Tuple<string, string>> 
                       , method.Name
                       , ExportDeclarationArgumentList( method.GetParameters() )
                       , ExportTransformedArgumentList( method.GetParameters() )
+                      , ExportVirtualCallHandler( method, klass )
                       , ExportReturnValue( method.ReturnParameter )
                       , method.IsStatic ? "nullptr" : "monoObject"
                       , ExportPassTransformedArgumentList( method.GetParameters() )
-                      , ExportReturnReturnValue( method.ReturnParameter ) );
+                      , ExportReturnReturnValue( method.ReturnParameter, knownStructures) );
 }
 
 bool NeedTranslation( Type type )
@@ -345,20 +361,22 @@ if ( args.Length < 3)
 var assemblyPath = Path.GetFullPath( args[ 0 ] );
 var assembly = Assembly.LoadFile( assemblyPath );
 
-var dictionaryPath = Path.GetFullPath( args[ 1 ] );
+var configPath = Path.GetFullPath( args[ 1 ] );
 
 var knownStructures = new List< Tuple< string, string > >();
-var dictionaryText = File.ReadAllText( dictionaryPath );
-var dictionaryTokens = dictionaryText.Split( new char[] { ' ', '\t', '\n', '\r', ',', ';' }, StringSplitOptions.RemoveEmptyEntries );
+var configText = File.ReadAllText( configPath );
+var configTokens = configText.Split( new char[] { ' ', '\t', '\n', '\r', ',', ';' }, StringSplitOptions.RemoveEmptyEntries );
 
-if ( ( dictionaryTokens.Length % 2 ) != 0 )
+for ( var i = 0; i < configTokens.Length; )
 {
-  Console.WriteLine( "The dictionary is invalid!" );
-  return;
+  if (configTokens[ i ] == "map" )
+  {
+    knownStructures.Add( new Tuple< string, string >(configTokens[ i + 1 ], configTokens[ i + 2 ] ) );
+    i += 3;
+  }
+  else
+    i++;
 }
-
-for ( var i = 0; i < dictionaryTokens.Length; i += 2 )
-  knownStructures.Add( new Tuple<string, string>( dictionaryTokens[ i ], dictionaryTokens[ i + 1 ] ) );
 
 foreach ( var type in assembly.GetTypes() )
 {
@@ -378,7 +396,7 @@ foreach ( var type in assembly.GetTypes() )
   var fileContents = string.Format( fileTemplate
                                   , ToCppNamespace( type.Namespace ?? "#MissingNamespace" )
                                   , type.Name
-                                  , type.IsAbstract && type.IsSealed ? "  public:" : string.Format( selfInteropTemplate, type.Name )
+                                  , type.IsAbstract && type.IsSealed ? "  public:" : string.Format( selfInteropTemplate, type.Name, type.Name )
                                   , functions );
 
   var path = args[ 2 ];

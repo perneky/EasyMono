@@ -1,6 +1,8 @@
 #include "clang-c/Index.h"
 #include <iostream>
 #include <vector>
+#include <set>
+#include <map>
 #include <unordered_set>
 #include <unordered_map>
 #include <filesystem>
@@ -15,13 +17,22 @@ using System.Runtime.InteropServices;
 namespace @
 {
   public @class @ : @
-  {
-@
-@
+  {@@
     @@( ulong thiz ) : base( thiz )
     {
     }
 @
+  }
+})";
+
+auto csStaticFileTemplate = LR"(
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+
+namespace @
+{
+  public static class @
+  {@@@
   }
 })";
 
@@ -100,7 +111,7 @@ namespace EasyMono
       GCHolder( const GCHolder& ) = delete;
       GCHolder& operator=( const GCHolder& ) = delete;
       GCHolder( GCHolder&& other ) { handle = other.handle; other.handle = 0; }
-      GCHolder& operator=( GCHolder&& other ) { handle = other.handle; other.handle = 0; }
+      GCHolder& operator=( GCHolder&& other ) { handle = other.handle; other.handle = 0; return *this; }
     };
 
     using GCHolderPtr = std::shared_ptr< GCHolder >;
@@ -221,7 +232,7 @@ auto cppStaticMethodTemplate = LR"(
 )";
 
 auto cppMethodRegistrationTemplate = LR"(
-  mono_add_internal_call( "@::@", @::@ );)";
+  mono_add_internal_call( "@::@", static_cast<@(*)(@)>(@::@) );)";
 
 auto cppStringArgTranslationTemplate = LR"(
       @ @CStr = @ ? @( mono_string_chars( @ ) ) : @();
@@ -241,6 +252,23 @@ auto cppDelegateWrapperTemplate = LR"(
         }@
       };
 )";
+
+struct ParserConfig
+{
+  struct KnownStructure
+  {
+    std::wstring nativeName;
+    std::wstring managedName;
+  };
+
+  std::vector< KnownStructure > knownStructures;
+  std::set< std::wstring > forcedStructs;
+  std::set< std::wstring > ignoredNamespaces;
+  std::vector< std::string > compilerOptions;
+  std::wstring scriptedBaseName;
+  bool cscHasRefReadonly = false;
+} parserConfig;
+
 
 template< typename T >
 std::wstring ToString( T t )
@@ -321,13 +349,10 @@ bool IsStartsWith( const std::wstring& a, const std::wstring& b )
   return wcsstr( a.data(), b.data() ) == a.data();
 }
 
-struct KnownStructure
+bool IsStartsWith( const std::string& a, const std::string& b )
 {
-  std::wstring nativeName;
-  std::wstring managedName;
-};
-
-std::vector< KnownStructure > knownStructures;
+  return strstr(a.data(), b.data()) == a.data();
+}
 
 struct TypeDesc
 {
@@ -420,16 +445,24 @@ std::unordered_map< std::wstring, DelegateDesc > delegates;
 
 std::vector<CXCursor> stack;
 
-const ClassDesc* GetScriptedBase( const ClassDesc& desc, const wchar_t* scriptedBaseName )
+bool IsStaticClass( const ClassDesc& desc )
+{
+  for ( auto& method : desc.methods )
+    if ( !method.isStatic )
+      return false;
+  return true;
+}
+
+const ClassDesc* GetScriptedBase( const ClassDesc& desc )
 {
   for ( auto& base : desc.baseClasses )
   {
     auto iter = classes.find( base );
     if ( iter != classes.end() )
     {
-      if ( iter->second.name == scriptedBaseName )
+      if ( iter->second.name == parserConfig.scriptedBaseName )
         return &iter->second;
-      if ( GetScriptedBase( iter->second, scriptedBaseName ) )
+      if ( GetScriptedBase( iter->second ) )
         return &iter->second;
     }
   }
@@ -539,8 +572,8 @@ bool Contains( const std::wstring& s, const wchar_t* sub )
 
 void TranslateKnownStructureNames( TypeDesc& arg )
 {
-  auto iter = std::find_if( knownStructures.begin(), knownStructures.end(), [ & ]( const KnownStructure& s ) { return arg.cppName == s.nativeName; } );
-  if ( iter != knownStructures.end() )
+  auto iter = std::find_if(parserConfig.knownStructures.begin(), parserConfig.knownStructures.end(), [ & ]( const ParserConfig::KnownStructure& s ) { return arg.cppName == s.nativeName; } );
+  if ( iter != parserConfig.knownStructures.end() )
     arg.csName = iter->managedName;
 }
 
@@ -570,6 +603,8 @@ TypeDesc::Kind GetTypeKind( CXType type )
     auto name = GetFullName( decl, Language::CPP );
     if ( name == L"std::function" )
       return TypeDesc::Kind::Delegate;
+    if (parserConfig.forcedStructs.find( name ) != parserConfig.forcedStructs.end())
+      return TypeDesc::Kind::Struct;
     return TypeDesc::Kind::Class;
   }
   case CXCursor_StructDecl: return TypeDesc::Kind::Struct;
@@ -621,10 +656,16 @@ ArgumentDesc ParseArgument( CXType type, bool isConst, bool isPointer, bool isLV
   }
   case CXType_Elaborated:
   {
+    auto namedType = clang_Type_getNamedType( type );
+    auto canType   = clang_getCanonicalType( namedType );
+    auto typeDecl  = clang_getTypeDeclaration( canType );
+    if ( typeDecl.kind == CXCursor_NoDeclFound )
+      return ParseArgument( canType, isConst, isPointer, isLValRef, isRValRef );
+
     ArgumentDesc arg;
-    arg.type.kind    = GetTypeKind( clang_Type_getNamedType( type ) );
-    arg.type.csName  = GetFullName( clang_Type_getNamedType( type ), Language::CS );
-    arg.type.cppName = GetFullName( clang_Type_getNamedType( type ), Language::CPP );
+    arg.type.kind    = GetTypeKind( namedType );
+    arg.type.csName  = GetFullName( namedType, Language::CS );
+    arg.type.cppName = GetFullName( namedType, Language::CPP );
     arg.isConst      = isConst;
     arg.isPointer    = isPointer;
     arg.isLValRef    = isLValRef;
@@ -661,15 +702,10 @@ ArgumentDesc ParseArgument( CXType type, bool isConst, bool isPointer, bool isLV
   return arg;
 }
 
-const wchar_t* ignoredNamespaces[] =
-{
-  L"std", L"ATL"
-};
-
 bool IsInIgnoredNamespace()
 {
   if ( !stack.empty() )
-    if ( auto name = ToString( stack.front() ); std::find( std::begin( ignoredNamespaces ), std::end( ignoredNamespaces ), name ) != std::end( ignoredNamespaces ) )
+    if ( auto name = ToString( stack.front() ); std::find( parserConfig.ignoredNamespaces.begin(), parserConfig.ignoredNamespaces.end(), name) != parserConfig.ignoredNamespaces.end() )
       return true;
   return false;
 }
@@ -702,14 +738,14 @@ std::wstring ParseHeader( CXCursor cursor )
   return ToString( clang_getFileName( filePath ) );
 }
 
-void ParseStruct( CXCursor cursor )
+void ParseStruct( CXCursor cursor, bool forced )
 {
   if ( IsInIgnoredNamespace() )
     return;
 
   std::wstring nameSpace = GetStackNamespace();
 
-  if ( nameSpace.empty() )
+  if ( !forced && nameSpace.empty() )
     return;
 
   auto name = GetFullName( cursor, Language::CPP );
@@ -768,7 +804,7 @@ void ParseStruct( CXCursor cursor )
       return CXChildVisit_Continue;
     }, &strukt );
 
-  if ( strukt.isScripted )
+  if ( strukt.isScripted || forced )
     structs.insert( { key, strukt } );
 }
 
@@ -908,7 +944,13 @@ void ParseClass( CXCursor cursor )
   auto name = GetFullName( cursor, Language::CPP );
   auto key = name;
 
+  if ( parserConfig.forcedStructs.count( key ) != 0 )
+    return ParseStruct( cursor, true );
+
   auto& klass = classes[ key ];
+
+  if (!klass.methods.empty())
+    return;
 
   klass.name = name;
   klass.nameSpace = nameSpace;
@@ -954,7 +996,7 @@ void ParseClass( CXCursor cursor )
         ctx.skipNextAccessSpecifier = true;
       }
       else if ( ctx.exporting )
-        ParseStruct( cursor );
+        ParseStruct( cursor, false );
       return CXChildVisit_Continue;
     case CXCursor_EnumDecl:
       if ( ctx.exporting )
@@ -1070,7 +1112,7 @@ CXChildVisitResult visitTranslationUnit( CXCursor cursor, CXCursor parent, CXCli
     ParseClass( cursor );
     return CXChildVisit_Continue;
   case CXCursor_StructDecl:
-    ParseStruct( cursor );
+    ParseStruct( cursor, false );
     return CXChildVisit_Continue;
   case CXCursor_EnumDecl:
     ParseEnum( cursor );
@@ -1085,13 +1127,18 @@ CXChildVisitResult visitTranslationUnit( CXCursor cursor, CXCursor parent, CXCli
   return CXChildVisit_Continue;
 }
 
-void parseHeader( std::filesystem::path filePath, const char** clangArguments, int numClangArguments )
+void parseHeader( std::filesystem::path filePath )
 {
   std::cout << "Parsing " << filePath << std::endl;
 
-  std::vector< const char* > args = { "-x", "c++", "-DEASY_MONO_PARSER"};
-  for ( int argIx = 0; argIx < numClangArguments; ++argIx )
-    args.push_back( clangArguments[ argIx ] );
+  std::vector< const char* > args = { "-x", "c++", "-DEASY_MONO_PARSER", "-Wno-deprecated-builtins"};
+  for ( auto& option : parserConfig.compilerOptions )
+    args.emplace_back( option.data() );
+
+  std::cout << "clang args: ";
+  for ( auto arg : args )
+    std::cout << arg << " ";
+  std::cout << std::endl;
 
   CXIndex index = clang_createIndex( 0, 1 );
   CXTranslationUnit unit = clang_parseTranslationUnit( index, filePath.string().data(), args.data(), int( args.size() ), nullptr, 0, CXTranslationUnit_SkipFunctionBodies | CXTranslationUnit_KeepGoing );
@@ -1131,10 +1178,15 @@ std::wstring ExportCSArgumentType( const ArgumentDesc& argDesc )
     && argDesc.type.kind != TypeDesc::Kind::String
     && argDesc.type.kind != TypeDesc::Kind::Delegate )
   {
-    if ( argDesc.isLValRef || argDesc.isRValRef || argDesc.isPointer )
-      s += L"ref ";
+    bool hasRef = false;
 
-    if ( argDesc.isConst )
+    if ( argDesc.isLValRef || argDesc.isRValRef || argDesc.isPointer )
+    {
+      s += L"ref ";
+      hasRef = true;
+    }
+
+    if ( argDesc.isConst && parserConfig.cscHasRefReadonly )
       s += L"readonly ";
   }
 
@@ -1199,9 +1251,9 @@ std::wstring ExportCPPArgument( const ArgumentDesc& argDesc )
   return ExportCPPArgumentType( argDesc, false ) + L" " + argDesc.name;
 }
 
-std::wstring ExportBaseName( const ClassDesc& scriptedBase, const wchar_t* scriptedBaseName )
+std::wstring ExportBaseName( const ClassDesc& scriptedBase )
 {
-  bool isSC = scriptedBase.name == scriptedBaseName;
+  bool isSC = scriptedBase.name == parserConfig.scriptedBaseName;
   return isSC ? L"EasyMono.NativeReference" : ChangeNamespaceSeparator( scriptedBase.name, L"." );
 }
 
@@ -1288,6 +1340,9 @@ std::wstring ExportCSMethods( const ClassDesc& desc )
                           , methodDesc.name
                           , ExportCSMethodArguments( methodDesc ) );
 
+  if ( !code.empty() )
+    code.insert( 0, L"\n" );
+
   return code;
 }
 
@@ -1318,9 +1373,12 @@ std::wstring ExportLocalStructures( const ClassDesc& desc )
   std::wstring code;
 
   for ( auto& strukt : structs )
-    if ( IsStartsWith( strukt.first, desc.name ) )
+    if ( strukt.second.isScripted && IsStartsWith( strukt.first, desc.name ) )
       code += FormatString( csLocalStructTemplate, JustName( strukt.second.name ), ExportStructureFields( strukt.second, L"      " ) );
-  
+
+  if ( !code.empty() )
+    code.insert( 0, L"\n" );
+
   return code;
 }
 
@@ -1332,28 +1390,48 @@ std::wstring ExportLocalEnums( const ClassDesc& desc )
     if ( IsStartsWith( inum.first, desc.name ) )
       code += FormatString( csLocalEnumTemplate, JustName( inum.second.name ), inum.second.csType, ExportEnumValues( inum.second, L"      " ) );
 
+  if ( !code.empty() )
+    code.insert( 0, L"\n" );
+
   return code;
 }
 
-void WriteCSClass( const ClassDesc& desc, std::filesystem::path path, const wchar_t* scriptedBaseName )
+void WriteCSClass( const ClassDesc& desc, std::filesystem::path path )
 {
   if ( desc.nameSpace.empty() )
     return;
 
-  auto scriptedBase = GetScriptedBase( desc, scriptedBaseName );
-  if ( !scriptedBase )
+  if ( desc.methods.empty() )
     return;
 
-  auto fileContents = FormatString( csFileTemplate
-                                  , ChangeNamespaceSeparator( desc.nameSpace, L"." )
-                                  , ExportClassQualifier( desc )
-                                  , JustName( desc.name )
-                                  , ExportBaseName( *scriptedBase, scriptedBaseName )
-                                  , ExportLocalStructures( desc )
-                                  , ExportLocalEnums( desc )
-                                  , desc.isFinal ? L"" : L"protected "
-                                  , JustName( desc.name )
-                                  , ExportCSMethods( desc ) );
+  auto isStatic = IsStaticClass( desc );
+  auto scriptedBase = GetScriptedBase( desc );
+  if ( !scriptedBase && !isStatic )
+    return;
+
+  std::wstring fileContents;
+  if ( isStatic )
+  {
+    fileContents = FormatString( csStaticFileTemplate
+                               , ChangeNamespaceSeparator( desc.nameSpace, L"." )
+                               , JustName( desc.name )
+                               , ExportLocalStructures( desc )
+                               , ExportLocalEnums( desc )
+                               , ExportCSMethods( desc ) );
+  }
+  else
+  {
+    fileContents = FormatString( csFileTemplate
+                               , ChangeNamespaceSeparator( desc.nameSpace, L"." )
+                               , ExportClassQualifier( desc )
+                               , JustName( desc.name )
+                               , ExportBaseName( *scriptedBase )
+                               , ExportLocalStructures( desc )
+                               , ExportLocalEnums( desc )
+                               , desc.isFinal ? L"" : L"protected "
+                               , JustName( desc.name )
+                               , ExportCSMethods( desc ) );
+  }
 
   path.append( ChangeNamespaceSeparator( desc.nameSpace, L"/" ) );
 
@@ -1377,7 +1455,7 @@ void WriteCSStructs( std::filesystem::path path )
   std::unordered_multimap< std::wstring, DelegateDesc > delegatesToWrite;
 
   for ( auto& strukt : structs )
-    if ( !strukt.second.isExported )
+    if ( !strukt.second.isExported && strukt.second.isScripted )
     {
       namespacesToWrite.insert( strukt.second.nameSpace );
       structuresToWrite.insert( { strukt.second.nameSpace, strukt.second } );
@@ -1453,36 +1531,39 @@ std::wstring ExportClassGetter( const ClassDesc& desc )
                      , JustName( desc.name ) );
 }
 
-std::wstring ExportClassGetters( const wchar_t* scriptedBaseName )
+std::wstring ExportClassGetters()
 {
   std::wstring code;
   for ( auto& iter : classes )
     if ( !iter.second.nameSpace.empty() )
-      if ( GetScriptedBase( iter.second, scriptedBaseName ) )
+      if ( GetScriptedBase( iter.second ) )
         code += ExportClassGetter( iter.second );
   return code;
 }
 
-std::wstring ExportClassIncludes( const wchar_t* scriptedBaseName )
+std::wstring ExportClassIncludes()
 {
   std::wstring code;
   for ( auto& iter : classes )
     if ( !iter.second.nameSpace.empty() )
-      if ( GetScriptedBase( iter.second, scriptedBaseName ) )
+      if ( GetScriptedBase( iter.second ) || IsStaticClass( iter.second ) )
         code += ExportClassInclude( iter.second );
   return code;
 }
 
-std::wstring ExportCPPMethodArguments( const MethodDesc& methodDesc )
+std::wstring ExportCPPMethodArguments( const MethodDesc& methodDesc, bool includeThis )
 {
-  if ( methodDesc.arguments.empty() )
-    return L"";
+  std::wstring code = ( includeThis && !methodDesc.isStatic ) ? L"MonoObject*, " : L"";
 
-  std::wstring code = L"";
   for ( auto& argDesc : methodDesc.arguments )
     code += ExportCPPArgument( argDesc ) + L", ";
-  code.pop_back();
-  code.pop_back();
+
+  if ( !code.empty() )
+  {
+    code.pop_back();
+    code.pop_back();
+  }
+
   return code;
 }
 
@@ -1671,7 +1752,7 @@ std::wstring ExportClassBindings( const ClassDesc& desc )
 
     code += FormatString( cppCtorTemplate
                         , methodDesc.name
-                        , ExportCPPMethodArguments( methodDesc )
+                        , ExportCPPMethodArguments( methodDesc, false )
                         , desc.name
                         , ExportCPPMethodArgumentNames( methodDesc ) );
   }
@@ -1685,7 +1766,7 @@ std::wstring ExportClassBindings( const ClassDesc& desc )
       code += FormatString( cppStaticMethodTemplate
                           , ExportCPPArgumentType( methodDesc.returnValue, true )
                           , methodDesc.name
-                          , ExportCPPMethodArguments( methodDesc )
+                          , ExportCPPMethodArguments( methodDesc, false )
                           , ExportDelegateWrappers( methodDesc )
                           , ExportNativeCallPrefix( methodDesc )
                           , ExportReturnStructureHandling( methodDesc )
@@ -1699,7 +1780,7 @@ std::wstring ExportClassBindings( const ClassDesc& desc )
                           , ExportCPPArgumentType( methodDesc.returnValue, true )
                           , methodDesc.name
                           , methodDesc.arguments.empty() ? L"" : L", "
-                          , ExportCPPMethodArguments( methodDesc )
+                          , ExportCPPMethodArguments( methodDesc, false )
                           , ExportDelegateWrappers( methodDesc )
                           , desc.name
                           , ExportNativeCallPrefix( methodDesc )
@@ -1720,7 +1801,7 @@ std::wstring ExportClassRegistrationName( const ClassDesc& desc )
 
 std::wstring ExportClassWrapperName( const ClassDesc& desc )
 {
-  return ChangeNamespaceSeparator( desc.nameSpace + L"::" + desc.name, L"__" );
+  return ChangeNamespaceSeparator( desc.name, L"__" );
 }
 
 std::wstring ExportClassMethodRegistration( const ClassDesc& desc, const MethodDesc& methodDesc )
@@ -1729,6 +1810,8 @@ std::wstring ExportClassMethodRegistration( const ClassDesc& desc, const MethodD
   return FormatString( cppMethodRegistrationTemplate
                      , ExportClassRegistrationName( desc )
                      , isCtor ? L"Ctor" : methodDesc.name
+                     , isCtor ? L"uint64_t" : ExportCPPArgumentType(methodDesc.returnValue, true)
+                     , ExportCPPMethodArguments( methodDesc, !isCtor )
                      , ExportClassWrapperName( desc )
                      , methodDesc.name );
 }
@@ -1741,12 +1824,12 @@ std::wstring ExportClassMethodRegistrations( const ClassDesc& desc )
   return code;
 }
 
-std::wstring ExportClassMethods( const wchar_t* scriptedBaseName )
+std::wstring ExportClassMethods()
 {
   std::wstring code;
   for ( auto& iter : classes )
     if ( !iter.second.nameSpace.empty() )
-      if ( GetScriptedBase( iter.second, scriptedBaseName ) )
+      if ( GetScriptedBase( iter.second ) || IsStaticClass( iter.second ) )
         code += FormatString( cppClassTemplate
                             , ExportClassWrapperName( iter.second )
                             , ExportClassBindings( iter.second )
@@ -1755,12 +1838,12 @@ std::wstring ExportClassMethods( const wchar_t* scriptedBaseName )
   return code;
 }
 
-void WriteCPPBindings( std::filesystem::path path, const wchar_t* scriptedBaseName )
+void WriteCPPBindings( std::filesystem::path path )
 {
   std::wstring code = FormatString( cppFileTemplate
-                                  , ExportClassIncludes( scriptedBaseName )
-                                  , ExportClassMethods( scriptedBaseName )
-                                  , ExportClassGetters( scriptedBaseName ) );
+                                  , ExportClassIncludes()
+                                  , ExportClassMethods()
+                                  , ExportClassGetters() );
 
   auto folder = path;
   folder.remove_filename();
@@ -1774,7 +1857,19 @@ void WriteCPPBindings( std::filesystem::path path, const wchar_t* scriptedBaseNa
   }
 }
 
-bool ParseDictionary( const char* path )
+std::vector< std::string > Split( const std::string& s, const char* sep )
+{
+  std::regex regex{ sep };
+  std::sregex_token_iterator it{ s.begin(), s.end(), regex, -1 };
+  return { it, {} };
+}
+
+bool IsWhitespaceOnly(const std::string& s)
+{
+  return std::all_of( s.begin(), s.end(), []( char c ) { return std::isspace( c ); } );
+}
+
+bool ParseConfig( const char* path )
 {
   FILE* file = nullptr;
   if ( fopen_s( &file, path, "rt" ) )
@@ -1788,42 +1883,115 @@ bool ParseDictionary( const char* path )
 
   fread_s( fileData.data(), fileData.size(), 1, fileSize, file );
 
-  auto split = []( const std::string & s ) -> std::vector< std::string >
+  const std::set<std::string> configKeywords = { "scriptbase", "ignore", "map", "struct", "clang", "csc" };
+  auto cwd = std::filesystem::current_path().string();
+  std::transform( cwd.begin(), cwd.end(), cwd.begin(), [](char c) { return c == '\\' ? '/' : c; } );
+  if (cwd.back() == '\\')
+    cwd.pop_back();
+  else if (cwd.back() == '\\\"' )
+    cwd.erase( cwd.size() - 2 );
+
+  // R"([\s\t\n\r,;]+)"
+  auto lines = Split( fileData, R"([\n\r]+)");
+  for ( auto& line : lines )
   {
-    std::regex regex{ R"([\s\t\n\r,;]+)" };
-    std::sregex_token_iterator it{ s.begin(), s.end(), regex, -1 };
-    return { it, {} };
-  };
+    if ( IsStartsWith( line, "scriptbase" ) )
+    {
+      auto tokens = Split(line, R"([\s\t,;]+)");
+      if ( tokens.size() > 1 )
+        parserConfig.scriptedBaseName = W( tokens[ 1 ] );
+    }
+    else if ( IsStartsWith( line, "ignore" ) )
+    {
+      auto tokens = Split(line, R"([\s\t,;]+)");
+      if ( tokens.size() > 1 )
+        parserConfig.ignoredNamespaces.insert( W( tokens[ 1 ] ) );
+    }
+    else if ( IsStartsWith( line, "map" ) )
+    {
+      auto tokens = Split(line, R"([\s\t,;]+)");
+      if ( tokens.size() > 2 )
+        parserConfig.knownStructures.emplace_back( W( tokens[ 1 ] ), W( tokens[ 2 ] ) );
+    }
+    else if ( IsStartsWith( line, "struct" ) )
+    {
+      auto tokens = Split(line, R"([\s\t,;]+)");
+      if ( tokens.size() > 1 )
+        parserConfig.forcedStructs.insert( W( tokens[ 1 ] ) );
+    }
+    else if ( IsStartsWith( line, "csc" ) )
+    {
+      auto tokens = Split(line, R"([\s\t,;]+)");
+      if ( tokens.size() > 1 )
+      {
+        if ( tokens[ 1 ] == "ref_readonly" )
+          parserConfig.cscHasRefReadonly = true;
+      }
+    }
+    else if ( IsStartsWith( line, "clang" ) )
+    {
+      auto addOption = [cwd]( std::string& o )
+      {
+        if (o.empty() )
+          return;
 
-  auto tokens = split( fileData );
+        auto cwdIndex = o.find( "_cwd_" );
+        if ( cwdIndex != std::string::npos )
+          o.replace( cwdIndex, 5, cwd );
 
-  if ( tokens.size() % 2 )
-    return false;
+        auto dollarIndex = o.find( "$(" );
+        if ( dollarIndex != std::string::npos )
+        {
+          auto closer = o.find( ")", dollarIndex );
+          auto var = o.substr( dollarIndex + 2, closer - dollarIndex - 2 );
+          auto path = getenv( var.data() );
+          o.replace( dollarIndex, closer - dollarIndex + 1, path );
+        }
 
-  for ( auto iter = tokens.begin(); iter != tokens.end(); iter += 2 )
-    knownStructures.emplace_back( KnownStructure{ .nativeName = W( iter[ 0 ] ), .managedName = W( iter[ 1 ] ) } );
+        if ( !IsWhitespaceOnly( o ) )
+          parserConfig.compilerOptions.emplace_back( o );
+
+        o.clear();
+      };
+
+      auto arg = line.substr( 6 );
+
+      bool inQuotes = false;
+      std::string option;
+      for ( auto c : arg )
+      {
+        if ( ( c == ' ' || c == '\t' || c == ',' || c == ';' || c == ':' ) && !inQuotes )
+          addOption( option );
+        else if ( c == '\"' )
+          inQuotes = !inQuotes;
+        else
+          option += c;
+      }
+      addOption( option );
+    }
+  }
+
+  parserConfig.ignoredNamespaces.insert( L"EasyMono" );
 
   return true;
 }
 
 int main( int argc, char* argv[] )
 {
-  if ( argc < 6 )
+  if ( argc != 5 )
   {
-    std::cout << "Invalid number of parameters." << std::endl << std::endl;
+    std::cout << "Invalid number of parameters: " << std::to_string( argc ) << std::endl << std::endl;
     std::cout << "For parsing a single header file:" << std::endl;
-    std::cout << "CStoCPPInteropGenerator.exe HeaderFilePath GeneratedCppFilePath GeneratedCSFolderPath DictionaryPath ScriptedBaseName CompilerArgs..." << std::endl << std::endl;
+    std::cout << "CStoCPPInteropGenerator.exe HeaderFilePath GeneratedCppFilePath GeneratedCSFolderPath ConfigPath" << std::endl << std::endl;
     std::cout << "For parsing header files in a folder recursively:" << std::endl;
-    std::cout << "CStoCPPInteropGenerator.exe SourceFolderPath GeneratedCppFilePath GeneratedCSFolderPath DictionaryPath ScriptedBaseName CompilerArgs..." << std::endl;
+    std::cout << "CStoCPPInteropGenerator.exe SourceFolderPath GeneratedCppFilePath GeneratedCSFolderPath ConfigPath" << std::endl;
     return -1;
   }
 
   std::filesystem::path source = argv[ 1 ];
   std::filesystem::path cppDestination = argv[ 2 ];
   std::filesystem::path csDestination = argv[ 3 ];
-  std::filesystem::path dictionary = argv[ 4 ];
-  
-  auto scriptedBaseName = W( argv[ 5 ] );
+  std::filesystem::path config = argv[ 4 ];
 
   if ( std::filesystem::exists( cppDestination ) && std::filesystem::is_directory( cppDestination ) )
   {
@@ -1837,15 +2005,15 @@ int main( int argc, char* argv[] )
     return -1;
   }
 
-  if ( std::filesystem::exists( dictionary ) && std::filesystem::is_directory( dictionary ) )
+  if ( std::filesystem::exists( config ) && std::filesystem::is_directory(config) )
   {
-    std::cout << "The DictionaryPath should not be a folder!" << std::endl;
+    std::cout << "The ConfigPath should not be a folder!" << std::endl;
     return -1;
   }
 
-  if ( !ParseDictionary( dictionary.string().data()) )
+  if ( !ParseConfig( config.string().data()) )
   {
-    std::cout << "Parsing the dictionary failed!" << std::endl;
+    std::cout << "Parsing the config failed!" << std::endl;
     return -1;
   }
 
@@ -1853,17 +2021,17 @@ int main( int argc, char* argv[] )
   {
     for ( auto& entry : std::filesystem::recursive_directory_iterator( source ) )
       if ( entry.is_regular_file() && entry.path().has_extension() && entry.path().extension() == ".h" )
-        parseHeader( entry.path(), (const char**)&argv[ 6 ], argc - 6 );
+        parseHeader( entry.path() );
   }
   else
-    parseHeader( source, (const char**)&argv[ 6 ], argc - 6 );
+    parseHeader( source );
 
   for ( auto& iter : classes )
-    WriteCSClass( iter.second, csDestination, scriptedBaseName.data() );
+    WriteCSClass( iter.second, csDestination );
 
   WriteCSStructs( csDestination );
 
-  WriteCPPBindings( cppDestination, scriptedBaseName.data() );
+  WriteCPPBindings( cppDestination );
 
   return 0;
 }
